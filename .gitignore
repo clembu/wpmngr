@@ -1,3 +1,6 @@
 # Zig artefacts
 .zig-cache/
 zig-out/
+
+# During development, we keep the ini closeby, but we don't need to commit it.
+imgui.ini
