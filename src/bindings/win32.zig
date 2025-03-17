@@ -8,6 +8,9 @@ pub const LPARAM = w32.LPARAM;
 pub const HWND = w32.HWND;
 pub const HRESULT = w32.HRESULT;
 pub const LRESULT = w32.LRESULT;
+pub const LONG_PTR = w32.LONG_PTR;
+pub const RECT = w32.RECT;
+pub const BOOL = w32.BOOL;
 pub const TRUE = w32.TRUE;
 pub const FALSE = w32.FALSE;
 
@@ -41,6 +44,25 @@ pub extern "user32" fn CreateWindowExA(dwExStyle: w32.DWORD, lpClassName: ?w32.L
 pub extern "user32" fn RegisterClassExA(*const WNDCLASSEXA) callconv(WINAPI) w32.ATOM;
 pub extern "kernel32" fn GetModuleHandleA(lpModuleName: ?w32.LPCSTR) callconv(WINAPI) ?w32.HMODULE;
 
+pub extern "user32" fn GetClientRect(w32.HWND, *w32.RECT) w32.BOOL;
+
+extern "user32" fn SetWindowLongPtrA(w32.HWND, c_int, w32.LONG_PTR) w32.LONG_PTR;
+extern "user32" fn GetWindowLongPtrA(w32.HWND, c_int) w32.LONG_PTR;
+const GWLP_USERDATA = -21;
+
+pub fn setWindowUserData(hwnd: w32.HWND, data: ?*anyopaque) ?*anyopaque {
+    const lpData: w32.LONG_PTR = @bitCast(@intFromPtr(data));
+    const r = SetWindowLongPtrA(hwnd, GWLP_USERDATA, lpData);
+    const ru : usize = @bitCast(r);
+    return @ptrFromInt(ru);
+}
+
+pub fn getWindowUserData(comptime T: type, hwnd: w32.HWND) ?*T {
+    const r = GetWindowLongPtrA(hwnd, GWLP_USERDATA);
+    const ru : usize = @bitCast(r);
+    return @ptrFromInt(ru);
+}
+
 pub extern "user32" fn LoadCursorA(hInstance: ?w32.HINSTANCE, lpCursorName: ?w32.LPCSTR) callconv(WINAPI) ?w32.HCURSOR;
 
 pub extern "user32" fn PeekMessageA(lpMsg: *const MSG, hWnd: ?w32.HWND, wMsgFilterMin: w32.UINT, wMsgFilterMax: w32.UINT, wRemoveMsg: w32.UINT) callconv(WINAPI) w32.BOOL;
@@ -70,6 +92,8 @@ pub const PM_REMOVE: w32.UINT = 0x0001;
 pub const WM_QUIT: w32.UINT = 0x0012;
 pub const WM_DESTROY: w32.UINT = 0x0002;
 pub const WM_CLOSE: w32.UINT = 0x0010;
+pub const WM_SIZE: w32.UINT = 0x0005;
+pub const WM_SIZING: w32.UINT = 0x0214;
 
 pub const WINAPI = @import("std").builtin.CallingConvention.winapi;
 pub const WNDPROC = *const fn (hwnd: w32.HWND, msg: w32.UINT, wparam: w32.WPARAM, lparam: w32.LPARAM) callconv(WINAPI) w32.LRESULT;

@@ -77,7 +77,6 @@ pub fn main() !void {
 
     var sc: ?*dx.IDXGISwapChain = null;
     var dev: ?*dx.ID3D11Device = null;
-    var featureLevel: dx.D3D_FEATURE_LEVEL = undefined;
     var devctx: ?*dx.ID3D11DeviceContext = null;
 
     _ = dx.D3D11CreateDeviceAndSwapChain(
@@ -91,23 +90,30 @@ pub fn main() !void {
         &scd,
         &sc,
         &dev,
-        &featureLevel,
+        null,
         &devctx,
     );
-    defer _ = dev.?.Unknown.Release();
-    defer _ = devctx.?.Unknown.Release();
-    defer _ = sc.?.Unknown.Release();
+    var gctx: Context = .{
+        .devctx = devctx.?,
+        .mainRTV = null,
+        .sc = sc.?,
+        .dev = dev.?,
+    };
 
-    _ = try imgui_dx11.init(dev.?, devctx.?);
+    defer _ = gctx.dev.Unknown.Release();
+    defer _ = gctx.devctx.Unknown.Release();
+    defer _ = gctx.sc.Unknown.Release();
+    defer _ = if (gctx.mainRTV) |rtv| rtv.Unknown.Release();
+
+    _ = try imgui_dx11.init(gctx.dev, gctx.devctx);
     defer imgui_dx11.deinit();
 
     var backbfr: ?*dx.ID3D11Texture2D = null;
-    var mainRTV: ?*dx.ID3D11RenderTargetView = null;
-    _ = sc.?.SwapChain.GetBuffer(0, &dx.ID3D11Texture2D.IID, @ptrCast(&backbfr));
-    _ = dev.?.Device.CreateRenderTargetView(@ptrCast(backbfr), null, @ptrCast(&mainRTV));
-
+    _ = gctx.sc.SwapChain.GetBuffer(0, &dx.ID3D11Texture2D.IID, @ptrCast(&backbfr));
+    _ = gctx.dev.Device.CreateRenderTargetView(@ptrCast(backbfr), null, @ptrCast(&gctx.mainRTV));
     _ = backbfr.?.Unknown.Release();
-    defer _ = mainRTV.?.Unknown.Release();
+
+    _ = w32.setWindowUserData(hwnd.?, &gctx);
 
     mainloop: while (true) {
         var msg = std.mem.zeroes(w32.MSG);
@@ -118,19 +124,7 @@ pub fn main() !void {
                 break :mainloop;
             }
         }
-        imgui_dx11.newFrame();
-        imgui_w32.newFrame();
-        imgui.newFrame();
-
-        App.update();
-
-        devctx.?.DeviceContext.OMSetRenderTargets(1, &.{mainRTV.?}, null);
-        devctx.?.DeviceContext.ClearRenderTargetView(mainRTV.?, &.{ 0.45, 0.55, 0.60, 1.00 });
-
-        imgui.render();
-        imgui_dx11.render(imgui.getDrawData());
-
-        _ = sc.?.SwapChain.Present(1, .{});
+        gctx.paint();
     }
 }
 
@@ -148,7 +142,68 @@ pub fn wndProc(
             w32.PostQuitMessage(0);
             return 0;
         },
+        w32.WM_SIZE => {
+            const width: u32 = @intCast(@as(usize, @bitCast(lparam)) & 0xffff);
+            const height: u32 = @intCast((@as(usize, @bitCast(lparam)) >> 16) & 0xffff);
+            const gctx: ?*Context = w32.getWindowUserData(Context, hwnd);
+            if (gctx) |ctx| {
+                ctx.resize(width, height);
+                return 0;
+            }
+        },
+        w32.WM_SIZING => {
+            var rect: w32.RECT = undefined;
+            _ = w32.GetClientRect(hwnd, &rect);
+            const gctx: ?*Context = w32.getWindowUserData(Context, hwnd);
+            if (gctx) |ctx| {
+                ctx.resize(
+                    @intCast(rect.right - rect.left),
+                    @intCast(rect.bottom - rect.top),
+                );
+                ctx.paint();
+                return 0;
+            }
+        },
         else => {},
     }
     return w32.DefWindowProcA(hwnd, msg, wparam, lparam);
 }
+
+const Context = struct {
+    dev: *dx.ID3D11Device,
+    devctx: *dx.ID3D11DeviceContext,
+    mainRTV: ?*dx.ID3D11RenderTargetView,
+    sc: *dx.IDXGISwapChain,
+
+    pub fn resize(ctx: *Context, width: u32, height: u32) void {
+        ctx.devctx.DeviceContext.OMSetRenderTargets(0, null, null);
+        _ = if (ctx.mainRTV) |rtv| rtv.Unknown.Release();
+        ctx.devctx.DeviceContext.Flush();
+        _ = ctx.sc.SwapChain.ResizeBuffers(1, width, height, .UNKNOWN, .{});
+        var backbfr: ?*dx.ID3D11Texture2D = null;
+        _ = ctx.sc.SwapChain.GetBuffer(0, &dx.ID3D11Texture2D.IID, @ptrCast(&backbfr));
+        std.debug.assert(backbfr != null);
+        _ = ctx.dev.Device.CreateRenderTargetView(
+            @ptrCast(backbfr),
+            null,
+            @ptrCast(&ctx.mainRTV),
+        );
+        _ = backbfr.?.Unknown.Release();
+    }
+
+    pub fn paint(ctx: *Context) void {
+        imgui_dx11.newFrame();
+        imgui_w32.newFrame();
+        imgui.newFrame();
+
+        App.update();
+
+        ctx.devctx.DeviceContext.OMSetRenderTargets(1, &.{ctx.mainRTV.?}, null);
+        ctx.devctx.DeviceContext.ClearRenderTargetView(ctx.mainRTV.?, &.{ 0.45, 0.55, 0.60, 1.00 });
+
+        imgui.render();
+        imgui_dx11.render(imgui.getDrawData());
+
+        _ = ctx.sc.SwapChain.Present(1, .{});
+    }
+};

@@ -319,6 +319,27 @@ pub const IDXGISwapChain = extern struct {
                 const ctx: *IDXGISwapChain = @ptrCast(self);
                 return vt.GetBuffer(ctx, index, guid, surface);
             }
+
+            pub fn ResizeBuffers(
+                m: *@This(),
+                buffer_count: w32.UINT,
+                width: w32.UINT,
+                height: w32.UINT,
+                new_format: DXGI_FORMAT,
+                swap_chain_flags: DXGI_SWAP_CHAIN_FLAG,
+            ) w32.HRESULT {
+                const self: *T = @alignCast(@fieldParentPtr("SwapChain", m));
+                const vt: *const IDXGISwapChain.VTable = @ptrCast(self.__v);
+                const ctx: *IDXGISwapChain = @ptrCast(self);
+                return vt.ResizeBuffers(
+                    ctx,
+                    buffer_count,
+                    width,
+                    height,
+                    new_format,
+                    swap_chain_flags,
+                );
+            }
         };
     }
 
@@ -330,7 +351,7 @@ pub const IDXGISwapChain = extern struct {
         SetFullscreenState: *anyopaque,
         GetFullscreenState: *anyopaque,
         GetDesc: *anyopaque,
-        ResizeBuffers: *anyopaque,
+        ResizeBuffers: *const fn (*T, w32.UINT, w32.UINT, w32.UINT, DXGI_FORMAT, DXGI_SWAP_CHAIN_FLAG) callconv(.winapi) w32.HRESULT,
         ResizeTarget: *anyopaque,
         GetContainingOutput: *anyopaque,
         GetFrameStatistics: *anyopaque,
@@ -509,6 +530,13 @@ pub const ID3D11DeviceContext = extern struct {
                     ColorRGBA,
                 );
             }
+
+            pub inline fn Flush(m: *@This()) void {
+                const self: *T = @alignCast(@fieldParentPtr("DeviceContext", m));
+                const vt: *const ID3D11DeviceContext.VTable = @ptrCast(self.__v);
+                const ctx: *ID3D11DeviceContext = @ptrCast(self);
+                vt.Flush(ctx);
+            }
         };
     }
 
@@ -624,7 +652,7 @@ pub const ID3D11DeviceContext = extern struct {
         CSGetSamplers: *anyopaque,
         CSGetConstantBuffers: *anyopaque,
         ClearState: *anyopaque,
-        Flush: *anyopaque,
+        Flush: *const fn (*T) callconv(.winapi) void,
         GetType: *anyopaque,
         GetContextFlags: *anyopaque,
         FinishCommandList: *anyopaque,
