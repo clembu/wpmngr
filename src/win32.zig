@@ -4,6 +4,10 @@ const w32 = std.os.windows;
 const MAIN_WINDOW_CLASS = "WPMNGR";
 
 pub fn main() !void {
+    const imctx = CImGuiCreateContext(null);
+    defer CImGuiDestroyContext(imctx);
+    CImGuiSetConfigFlags(.ImGuiConfigFlags_DockingEnable);
+
     const wndClass = WNDCLASSEXA{
         .style = 0,
         .lpfnWndProc = wndProc,
@@ -33,6 +37,9 @@ pub fn main() !void {
         wndClass.hInstance,
         null,
     );
+
+    _ = ImGui_ImplWin32_Init(hwnd.?);
+    defer ImGui_ImplWin32_Shutdown();
 
     const scd: DXGI_SWAP_CHAIN_DESC = .{
         .BufferCount = 2,
@@ -86,6 +93,9 @@ pub fn main() !void {
     defer _ = devctx.?.Unknown.Release();
     defer _ = sc.?.Unknown.Release();
 
+    _ = ImGui_ImplDX11_Init(dev.?, devctx.?);
+    defer ImGui_ImplDX11_Shutdown();
+
     var backbfr: ?*ID3D11Texture2D = null;
     var mainRTV: ?*ID3D11RenderTargetView = null;
     _ = sc.?.SwapChain.GetBuffer(0, &ID3D11Texture2D.IID, @ptrCast(&backbfr));
@@ -103,9 +113,17 @@ pub fn main() !void {
                 break :mainloop;
             }
         }
+        ImGui_ImplDX11_NewFrame();
+        ImGui_ImplWin32_NewFrame();
+        CImGuiNewFrame();
+
+        CImGuiShowDemoWindow();
 
         devctx.?.DeviceContext.OMSetRenderTargets(1, &.{mainRTV.?}, null);
         devctx.?.DeviceContext.ClearRenderTargetView(mainRTV.?, &.{ 0.45, 0.55, 0.60, 1.00 });
+
+        CImGuiRender();
+        ImGui_ImplDX11_RenderDrawData(CImGuiGetDrawData());
 
         _ = sc.?.SwapChain.Present(1, .{});
     }
@@ -117,6 +135,9 @@ pub fn wndProc(
     wparam: w32.WPARAM,
     lparam: w32.LPARAM,
 ) callconv(WINAPI) w32.LRESULT {
+    if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam) != 0) {
+        return w32.TRUE;
+    }
     switch (msg) {
         WM_CLOSE, WM_DESTROY => {
             PostQuitMessage(0);
@@ -838,3 +859,46 @@ pub const ID3D11Texture2D = extern struct {
 
 const WINAPI = std.builtin.CallingConvention.winapi;
 const WNDPROC = *const fn (hwnd: w32.HWND, msg: w32.UINT, wparam: w32.WPARAM, lparam: w32.LPARAM) callconv(WINAPI) w32.LRESULT;
+
+// ImGui
+
+const ImGuiContext = *opaque {};
+const ImDrawData = *opaque {};
+
+const ImGuiConfigFlags = enum(c_int) {
+    ImGuiConfigFlags_None = 0,
+    ImGuiConfigFlags_NavEnableKeyboard = 1 << 0, // Master keyboard navigation enable flag. Enable full Tabbing + directional arrows + space/enter to activate.
+    ImGuiConfigFlags_NavEnableGamepad = 1 << 1, // Master gamepad navigation enable flag. Backend also needs to set ImGuiBackendFlags_HasGamepad.
+    ImGuiConfigFlags_NoMouse = 1 << 4, // Instruct dear imgui to disable mouse inputs and interactions.
+    ImGuiConfigFlags_NoMouseCursorChange = 1 << 5, // Instruct backend to not alter mouse cursor shape and visibility. Use if the backend cursor changes are interfering with yours and you don't want to use SetMouseCursor() to change mouse cursor. You may want to honor requests from imgui by reading GetMouseCursor() yourself instead.
+    ImGuiConfigFlags_NoKeyboard = 1 << 6, // Instruct dear imgui to disable keyboard inputs and interactions. This is done by ignoring keyboard events and clearing existing states.
+
+    // [BETA] Docking
+    ImGuiConfigFlags_DockingEnable = 1 << 7, // Docking enable flags.
+
+    // [BETA] Viewports
+    // When using viewports it is recommended that your default value for ImGuiCol_WindowBg is opaque (Alpha=1.0) so transition to a viewport won't be noticeable.
+    ImGuiConfigFlags_ViewportsEnable = 1 << 10, // Viewport enable flags (require both ImGuiBackendFlags_PlatformHasViewports + ImGuiBackendFlags_RendererHasViewports set by the respective backends)
+    ImGuiConfigFlags_DpiEnableScaleViewports = 1 << 14, // [BETA: Don't use] FIXME-DPI: Reposition and resize imgui windows when the DpiScale of a viewport changed (mostly useful for the main viewport hosting other window). Note that resizing the main window itself is up to your application.
+    ImGuiConfigFlags_DpiEnableScaleFonts = 1 << 15, // [BETA: Don't use] FIXME-DPI: Request bitmap-scaled fonts to match DpiScale. This is a very low-quality workaround. The correct way to handle DPI is _currently_ to replace the atlas and/or fonts in the Platform_OnChangedViewport callback, but this is all early work in progress.
+
+    // User storage (to allow your backend/engine to communicate to code that may be shared between multiple projects. Those flags are NOT used by core Dear ImGui)
+    ImGuiConfigFlags_IsSRGB = 1 << 20, // Application is SRGB-aware.
+    ImGuiConfigFlags_IsTouchScreen = 1 << 21, // Application is using a touch screen instead of a mouse.
+};
+
+extern fn CImGuiCreateContext(?*anyopaque) ImGuiContext;
+extern fn CImGuiDestroyContext(?ImGuiContext) void;
+extern fn CImGuiNewFrame() void;
+extern fn CImGuiShowDemoWindow() void;
+extern fn CImGuiRender() void;
+extern fn CImGuiGetDrawData() ImDrawData;
+extern fn CImGuiSetConfigFlags(ImGuiConfigFlags) void;
+extern fn ImGui_ImplWin32_Init(w32.HWND) bool;
+extern fn ImGui_ImplWin32_Shutdown() void;
+extern fn ImGui_ImplWin32_NewFrame() void;
+extern fn ImGui_ImplWin32_WndProcHandler(w32.HWND, w32.UINT, w32.WPARAM, w32.LPARAM) w32.LRESULT;
+extern fn ImGui_ImplDX11_Init(*ID3D11Device, *ID3D11DeviceContext) bool;
+extern fn ImGui_ImplDX11_Shutdown() void;
+extern fn ImGui_ImplDX11_NewFrame() void;
+extern fn ImGui_ImplDX11_RenderDrawData(ImDrawData) void;

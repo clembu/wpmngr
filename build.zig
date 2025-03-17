@@ -17,6 +17,44 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    const imgui = b.addStaticLibrary(.{
+        .name = "imgui",
+        .target = target,
+        .optimize = optimize,
+    });
+    exe.step.dependOn(&imgui.step);
+
+    imgui.addIncludePath(b.path("vendor/imgui"));
+    imgui.addCSourceFiles(.{
+        .files = &.{
+            "vendor/imgui/imgui.cpp",
+            "vendor/imgui/imgui_widgets.cpp",
+            "vendor/imgui/imgui_tables.cpp",
+            "vendor/imgui/imgui_draw.cpp",
+            "vendor/imgui/imgui_demo.cpp",
+        },
+    });
+    imgui.addCSourceFile(.{
+        .file = b.path("src/bindings/imgui.cpp"),
+    });
+
+    // NOTE(smugs): These are Win32 only
+    imgui.addCSourceFiles(.{
+        .files = &.{
+            "vendor/imgui/backends/imgui_impl_win32.cpp",
+            "vendor/imgui/backends/imgui_impl_dx11.cpp",
+        },
+    });
+    imgui.linkSystemLibrary("dwmapi");
+    imgui.linkSystemLibrary("d3dcompiler_47");
+    imgui.linkSystemLibrary("gdi32");
+    imgui.root_module.addCMacro("IMGUI_IMPL_API", "extern \"C\"");
+
+    imgui.linkLibC();
+    if (target.result.abi != .msvc)
+        imgui.linkLibCpp();
+    exe.linkLibrary(imgui);
+
     const run_cmd = b.addRunArtifact(exe);
 
     run_cmd.step.dependOn(b.getInstallStep());
