@@ -1,6 +1,7 @@
 const std = @import("std");
 const w32 = @import("bindings/win32.zig");
 const dx = @import("bindings/directx.zig");
+const wic = @import("bindings/wincodec.zig");
 const imgui = @import("bindings/imgui.zig");
 const imgui_w32 = @import("bindings/imgui_win32.zig");
 const imgui_dx11 = @import("bindings/imgui_dx11.zig");
@@ -9,9 +10,84 @@ const App = @import("app.zig");
 const MAIN_WINDOW_CLASS = "WPMNGR";
 
 pub fn main() !void {
+    _ = w32.CoInitializeEx(null, 0);
+    defer _ = w32.CoUninitialize();
+
+    var wicfac: ?*wic.IWICImagingFactory = null;
+    _ = w32.CoCreateInstance(
+        &wic.IWICImagingFactory.CLSID,
+        null,
+        w32.CLSCTX_INPROC_SERVER,
+        &wic.IWICImagingFactory.IID,
+        @ptrCast(&wicfac),
+    );
+    defer _ = wicfac.?.Unknown.Release();
+
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var args = try std.process.argsWithAllocator(allocator);
+    _ = args.skip(); // Skip the command itself.
+    const imgpath = try (args.next() orelse error.MissingImageArg);
+    const imgpathw = try std.unicode.wtf8ToWtf16LeAllocZ(allocator, imgpath);
+    defer allocator.free(imgpathw);
+    args.deinit();
+
+    var decoder: ?*wic.IWICBitmapDecoder = null;
+    _ = wicfac.?.ImagingFactory.CreateDecoderFromFilename(
+        imgpathw,
+        null,
+        .{ .read = true },
+        .{ .cache_metadata_on_load = true },
+        &decoder,
+    );
+    defer _ = decoder.?.Unknown.Release();
+
+    var frame: ?*wic.IWICBitmapFrameDecode = null;
+    _ = decoder.?.BitmapDecoder.GetFrame(0, &frame);
+    defer _ = frame.?.Unknown.Release();
+
+    var img_conv: ?*wic.IWICFormatConverter = null;
+    _ = wicfac.?.ImagingFactory.CreateFormatConverter(&img_conv);
+    defer _ = img_conv.?.Unknown.Release();
+    _ = img_conv.?.FormatConverter.Initialize(
+        @as(*wic.IWICBitmapSource, @ptrCast(frame.?)),
+        &wic.GUID_WICPixelFormat32bppRGBA,
+        .none,
+        null,
+        0.0,
+        0,
+    );
+
+    var width: u32 = undefined;
+    var height: u32 = undefined;
+    _ = img_conv.?.BitmapSource.GetSize(&width, &height);
+
+    const imgbfr = try allocator.alloc(u8, width * height * 4);
+
+    _ = img_conv.?.BitmapSource.CopyPixels(null, width * 4, imgbfr);
+
+    var desc = std.mem.zeroes(dx.D3D11_TEXTURE2D_DESC);
+    desc.Width = width;
+    desc.Height = height;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = .R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = .DEFAULT;
+    desc.BindFlags = .{ .SHADER_RESOURCE = true };
+    desc.CPUAccessFlags = .{};
+
+    const initData: dx.D3D11_SUBRESOURCE_DATA = .{
+        .pSysMem = @ptrCast(imgbfr.ptr),
+        .SysMemPitch = width * 4,
+        .SysMemSlicePitch = 0,
+    };
+
     const imctx = imgui.init();
     defer imgui.deinit(imctx);
-    imgui.io.SetConfigFlags(.ImGuiConfigFlags_DockingEnable);
+    imgui.io.SetConfigFlags(.{ .DockingEnable = true });
 
     const wndClass = w32.WNDCLASSEXA{
         .style = 0,
@@ -98,12 +174,37 @@ pub fn main() !void {
         .mainRTV = null,
         .sc = sc.?,
         .dev = dev.?,
+        .app = .init(),
     };
 
     defer _ = gctx.dev.Unknown.Release();
     defer _ = gctx.devctx.Unknown.Release();
     defer _ = gctx.sc.Unknown.Release();
     defer _ = if (gctx.mainRTV) |rtv| rtv.Unknown.Release();
+
+    var texture: ?*dx.ID3D11Texture2D = null;
+    _ = gctx.dev.Device.CreateTexture2D(&desc, &initData, &texture);
+    defer _ = texture.?.Unknown.Release();
+
+    var srvdesc = std.mem.zeroes(dx.D3D11_SHADER_RESOURCE_VIEW_DESC);
+    srvdesc.Format = .R8G8B8A8_UNORM;
+    srvdesc.ViewDimension = .texture2d;
+    srvdesc.u.Texture2D.MipLevels = desc.MipLevels;
+    srvdesc.u.Texture2D.MostDetailedMip = 0;
+    var srv: ?*dx.ID3D11ShaderResourceView = null;
+    _ = gctx.dev.Device.CreateShaderResourceView(@ptrCast(texture.?), &srvdesc, &srv);
+    _ = texture.?.Unknown.Release();
+    allocator.free(imgbfr);
+    if (srv) |t| {
+        gctx.app.image = .{
+            .txid = t,
+            .width = width,
+            .height = height,
+        };
+    }
+    defer if (srv) |t| {
+        _ = t.Unknown.Release();
+    };
 
     _ = try imgui_dx11.init(gctx.dev, gctx.devctx);
     defer imgui_dx11.deinit();
@@ -174,6 +275,7 @@ const Context = struct {
     devctx: *dx.ID3D11DeviceContext,
     mainRTV: ?*dx.ID3D11RenderTargetView,
     sc: *dx.IDXGISwapChain,
+    app: App,
 
     pub fn resize(ctx: *Context, width: u32, height: u32) void {
         ctx.devctx.DeviceContext.OMSetRenderTargets(0, null, null);
@@ -196,7 +298,7 @@ const Context = struct {
         imgui_w32.newFrame();
         imgui.newFrame();
 
-        App.update();
+        ctx.app.update();
 
         ctx.devctx.DeviceContext.OMSetRenderTargets(1, &.{ctx.mainRTV.?}, null);
         ctx.devctx.DeviceContext.ClearRenderTargetView(ctx.mainRTV.?, &.{ 0.45, 0.55, 0.60, 1.00 });

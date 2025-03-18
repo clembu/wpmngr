@@ -2,17 +2,24 @@ const w32 = @import("std").os.windows;
 
 pub const UINT = w32.UINT;
 pub const LPCSTR = w32.LPCSTR;
+pub const LPCWSTR = w32.LPCWSTR;
 pub const DWORD = w32.DWORD;
 pub const WPARAM = w32.WPARAM;
 pub const LPARAM = w32.LPARAM;
 pub const HWND = w32.HWND;
+pub const HMODULE = w32.HMODULE;
 pub const HRESULT = w32.HRESULT;
+pub const HRESULT_CODE = w32.HRESULT_CODE;
 pub const LRESULT = w32.LRESULT;
 pub const LONG_PTR = w32.LONG_PTR;
 pub const RECT = w32.RECT;
 pub const BOOL = w32.BOOL;
+pub const FLOAT = w32.FLOAT;
+pub const GUID = w32.GUID;
 pub const TRUE = w32.TRUE;
 pub const FALSE = w32.FALSE;
+
+pub const PATH_MAX_WIDE = w32.PATH_MAX_WIDE;
 
 pub const WNDCLASSEXA = extern struct {
     cbSize: w32.UINT = @sizeOf(WNDCLASSEXA),
@@ -53,13 +60,13 @@ const GWLP_USERDATA = -21;
 pub fn setWindowUserData(hwnd: w32.HWND, data: ?*anyopaque) ?*anyopaque {
     const lpData: w32.LONG_PTR = @bitCast(@intFromPtr(data));
     const r = SetWindowLongPtrA(hwnd, GWLP_USERDATA, lpData);
-    const ru : usize = @bitCast(r);
+    const ru: usize = @bitCast(r);
     return @ptrFromInt(ru);
 }
 
 pub fn getWindowUserData(comptime T: type, hwnd: w32.HWND) ?*T {
     const r = GetWindowLongPtrA(hwnd, GWLP_USERDATA);
-    const ru : usize = @bitCast(r);
+    const ru: usize = @bitCast(r);
     return @ptrFromInt(ru);
 }
 
@@ -69,6 +76,11 @@ pub extern "user32" fn PeekMessageA(lpMsg: *const MSG, hWnd: ?w32.HWND, wMsgFilt
 pub extern "user32" fn TranslateMessage(lpMsg: *const MSG) callconv(WINAPI) w32.BOOL;
 pub extern "user32" fn DispatchMessageA(lpMsg: *const MSG) callconv(WINAPI) w32.LRESULT;
 pub extern "user32" fn PostQuitMessage(i32) callconv(WINAPI) void;
+
+pub extern "ole32" fn CoInitializeEx(?*anyopaque, w32.DWORD) callconv(WINAPI) w32.HRESULT;
+pub extern "ole32" fn CoUninitialize() callconv(WINAPI) w32.HRESULT;
+pub extern "ole32" fn CoCreateInstance(rclsid: *const w32.GUID, pUnkOuter: ?*IUnknown, dwClsContext: w32.DWORD, riid: *const w32.GUID, ppv: *?*anyopaque) callconv(WINAPI) w32.HRESULT;
+pub const CLSCTX_INPROC_SERVER : w32.DWORD = 0x1;
 
 pub const WS_OVERLAPPED: w32.DWORD = 0x0000_0000;
 pub const WS_CAPTION: w32.DWORD = 0x00C0_0000;
@@ -97,3 +109,28 @@ pub const WM_SIZING: w32.UINT = 0x0214;
 
 pub const WINAPI = @import("std").builtin.CallingConvention.winapi;
 pub const WNDPROC = *const fn (hwnd: w32.HWND, msg: w32.UINT, wparam: w32.WPARAM, lparam: w32.LPARAM) callconv(WINAPI) w32.LRESULT;
+
+// Interfaces
+
+pub const IUnknown = extern struct {
+    __v: *const VTable,
+
+    Unknown: Mixin(@This()) = .{},
+
+    pub fn Mixin(comptime T: type) type {
+        return struct {
+            pub inline fn Release(m: *@This()) w32.ULONG {
+                const self: *T = @alignCast(@fieldParentPtr("Unknown", m));
+                const vt: *const IUnknown.VTable = @ptrCast(self.__v);
+                const ctx: *IUnknown = @ptrCast(self);
+                return vt.Release(ctx);
+            }
+        };
+    }
+
+    pub const VTable = extern struct {
+        QueryInterface: *anyopaque,
+        AddRef: *anyopaque,
+        Release: *const fn (*IUnknown) callconv(.winapi) w32.ULONG,
+    };
+};

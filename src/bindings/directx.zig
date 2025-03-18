@@ -1,4 +1,4 @@
-const w32 = @import("std").os.windows;
+const w32 = @import("win32.zig");
 
 pub const D3D11_SDK_VERSION = 7;
 
@@ -273,36 +273,184 @@ const DXGI_PRESENT = packed struct(w32.UINT) {
     __unused: u22 = 0,
 };
 
-// Interfaces
-
-const IUnknown = extern struct {
-    __v: *const VTable,
-
-    Unknown: Mixin(@This()) = .{},
-
-    pub fn Mixin(comptime T: type) type {
-        return struct {
-            pub inline fn Release(m: *@This()) w32.ULONG {
-                const self: *T = @alignCast(@fieldParentPtr("Unknown", m));
-                const vt: *const IUnknown.VTable = @ptrCast(self.__v);
-                const ctx: *IUnknown = @ptrCast(self);
-                return vt.Release(ctx);
-            }
-        };
-    }
-
-    pub const VTable = extern struct {
-        QueryInterface: *anyopaque,
-        AddRef: *anyopaque,
-        Release: *const fn (*IUnknown) callconv(.winapi) w32.ULONG,
-    };
+pub const D3D11_TEXTURE2D_DESC = extern struct {
+    Width: w32.UINT,
+    Height: w32.UINT,
+    MipLevels: w32.UINT,
+    ArraySize: w32.UINT,
+    Format: DXGI_FORMAT,
+    SampleDesc: DXGI_SAMPLE_DESC,
+    Usage: D3D11_USAGE,
+    BindFlags: D3D11_BIND_FLAG,
+    CPUAccessFlags: D3D11_CPU_ACCESS_FLAG,
+    MiscFlags: D3D11_RESOURCE_MISC_FLAG,
 };
+
+pub const D3D11_USAGE = enum(w32.UINT) {
+    DEFAULT = 0,
+    IMMUTABLE = 1,
+    DYNAMIC = 2,
+    STAGING = 3,
+};
+
+pub const D3D11_BIND_FLAG = packed struct(w32.UINT) {
+    VERTEX_BUFFER: bool = false,
+    INDEX_BUFFER: bool = false,
+    CONSTANT_BUFFER: bool = false,
+    SHADER_RESOURCE: bool = false,
+    STREAM_OUTPUT: bool = false,
+    RENDER_TARGET: bool = false,
+    DEPTH_STENCIL: bool = false,
+    UNORDERED_ACCESS: bool = false,
+    _unused_9: bool = false,
+    DECODER: bool = false,
+    VIDEO_ENCODER: bool = false,
+    _unused_12_32: u21 = 0,
+};
+
+pub const D3D11_CPU_ACCESS_FLAG = packed struct(w32.UINT) {
+    _unused_low: u16 = 0,
+    write: bool = false,
+    read: bool = false,
+    _unused_high: u14 = 0,
+};
+
+pub const D3D11_RESOURCE_MISC_FLAG = packed struct(w32.UINT) {
+    GENERATE_MIPS: bool = false,
+    SHARED: bool = false,
+    TEXTURECUBE: bool = false,
+    _unused_4: bool = false,
+    DRAWINDIRECT_ARGS: bool = false,
+    BUFFER_ALLOW_RAW_VIEWS: bool = false,
+    BUFFER_STRUCTURED: bool = false,
+    RESOURCE_CLAMP: bool = false,
+    SHARED_KEYEDMUTEX: bool = false,
+    GDI_COMPATIBLE: bool = false,
+    _unused_11: bool = false,
+    SHARED_NTHANDLE: bool = false,
+    RESTRICTED_CONTENT: bool = false,
+    RESTRICT_SHARED_RESOURCE: bool = false,
+    RESTRICT_SHARED_RESOURCE_DRIVER: bool = false,
+    GUARDED: bool = false,
+    _unused_17: bool = false,
+    TILE_POOL: bool = false,
+    TILED: bool = false,
+    HW_PROTECTED: bool = false,
+    _unused_21_32: u12 = 0,
+};
+
+pub const D3D11_SUBRESOURCE_DATA = extern struct {
+    pSysMem: *const anyopaque,
+    SysMemPitch: w32.UINT,
+    SysMemSlicePitch: w32.UINT,
+};
+
+pub const D3D11_SHADER_RESOURCE_VIEW_DESC = extern struct {
+    Format: DXGI_FORMAT,
+    ViewDimension: D3D11_SRV_DIMENSION,
+    u: extern union {
+        Buffer: D3D11_BUFFER_SRV,
+        Texture1D: D3D11_TEX1D_SRV,
+        Texture1DArray: D3D11_TEX1D_ARRAY_SRV,
+        Texture2D: D3D11_TEX2D_SRV,
+        Texture2DArray: D3D11_TEX2D_ARRAY_SRV,
+        Texture2DMS: D3D11_TEX2DMS_SRV,
+        Texture2DMSArray: D3D11_TEX2DMS_ARRAY_SRV,
+        Texture3D: D3D11_TEX3D_SRV,
+        TextureCube: D3D11_TEXCUBE_SRV,
+        TextureCubeArray: D3D11_TEXCUBE_ARRAY_SRV,
+        BufferEx: D3D11_BUFFEREX_SRV,
+    },
+};
+
+pub const D3D11_SRV_DIMENSION = enum(w32.UINT) {
+    unknown,
+    buffer,
+    texture1d,
+    texture1dArray,
+    texture2d,
+    texture2dArray,
+    texture2dMS,
+    texture2dMSArray,
+    texture3d,
+    textureCube,
+    textureCubeArray,
+    bufferEx,
+};
+
+pub const D3D11_BUFFER_SRV = extern struct {
+    FirstElement: w32.UINT,
+    NumElements: w32.UINT,
+};
+
+pub const D3D11_TEX1D_SRV = extern struct {
+    MostDetailedMip: w32.UINT,
+    MipLevels: w32.UINT,
+};
+
+pub const D3D11_TEX1D_ARRAY_SRV = extern struct {
+    MostDetailedMip: w32.UINT,
+    MipLevels: w32.UINT,
+    FirstArraySlice: w32.UINT,
+    ArraySize: w32.UINT,
+};
+
+pub const D3D11_TEX2D_SRV = extern struct {
+    MostDetailedMip: w32.UINT,
+    MipLevels: w32.UINT,
+};
+
+pub const D3D11_TEX2D_ARRAY_SRV = extern struct {
+    MostDetailedMip: w32.UINT,
+    MipLevels: w32.UINT,
+    FirstArraySlice: w32.UINT,
+    ArraySize: w32.UINT,
+};
+
+pub const D3D11_TEX3D_SRV = extern struct {
+    MostDetailedMip: w32.UINT,
+    MipLevels: w32.UINT,
+};
+
+pub const D3D11_TEXCUBE_SRV = extern struct {
+    MostDetailedMip: w32.UINT,
+    MipLevels: w32.UINT,
+};
+
+pub const D3D11_TEXCUBE_ARRAY_SRV = extern struct {
+    MostDetailedMip: w32.UINT,
+    MipLevels: w32.UINT,
+    First2DArrayFace: w32.UINT,
+    NumCubes: w32.UINT,
+};
+
+pub const D3D11_TEX2DMS_SRV = extern struct {
+    UnusedField_NothingToDefine: w32.UINT,
+};
+
+pub const D3D11_TEX2DMS_ARRAY_SRV = extern struct {
+    FirstArraySlice: w32.UINT,
+    ArraySize: w32.UINT,
+};
+
+pub const D3D11_BUFFEREX_SRV_FLAG = packed struct(w32.UINT) {
+    RAW: bool = false,
+    _unused_2_32: u31 = 0,
+};
+
+pub const D3D11_BUFFEREX_SRV = extern struct {
+    FirstElement: w32.UINT,
+    NumElements: w32.UINT,
+    Flags: D3D11_BUFFEREX_SRV_FLAG,
+};
+
+// Interfaces
 
 pub const IDXGISwapChain = extern struct {
     __v: *const VTable,
 
     SwapChain: Mixin(@This()) = .{},
-    Unknown: IUnknown.Mixin(@This()) = .{},
+    Unknown: w32.IUnknown.Mixin(@This()) = .{},
 
     pub fn Mixin(comptime T: type) type {
         return struct {
@@ -373,7 +521,7 @@ const IDXGIObject = extern struct {
 
     pub const VTable = extern struct {
         const T = IDXGIObject;
-        base: IUnknown.VTable,
+        base: w32.IUnknown.VTable,
         SetPrivateData: *anyopaque,
         SetPrivateDataInterface: *anyopaque,
         GetPrivateData: *anyopaque,
@@ -385,7 +533,7 @@ pub const ID3D11Device = extern struct {
     __v: *const VTable,
 
     Device: Mixin(@This()) = .{},
-    Unknown: IUnknown.Mixin(@This()) = .{},
+    Unknown: w32.IUnknown.Mixin(@This()) = .{},
 
     pub fn Mixin(comptime T: type) type {
         return struct {
@@ -400,17 +548,41 @@ pub const ID3D11Device = extern struct {
                 const ctx: *ID3D11Device = @ptrCast(self);
                 return vt.CreateRenderTargetView(ctx, pResource, pDesc, ppSRView);
             }
+
+            pub fn CreateTexture2D(
+                m: *@This(),
+                pDesc: *const D3D11_TEXTURE2D_DESC,
+                pInitialData: ?*const D3D11_SUBRESOURCE_DATA,
+                ppTextureData: *?*ID3D11Texture2D,
+            ) w32.HRESULT {
+                const self: *T = @alignCast(@fieldParentPtr("Device", m));
+                const vt: *const ID3D11Device.VTable = @ptrCast(self.__v);
+                const ctx: *ID3D11Device = @ptrCast(self);
+                return vt.CreateTexture2D(ctx, pDesc, pInitialData, ppTextureData);
+            }
+
+            pub fn CreateShaderResourceView(
+                m: *@This(),
+                pResource: *const ID3D11Resource,
+                pDesc: ?*const D3D11_SHADER_RESOURCE_VIEW_DESC,
+                ppSRView: *?*ID3D11ShaderResourceView,
+            ) w32.HRESULT {
+                const self: *T = @alignCast(@fieldParentPtr("Device", m));
+                const vt: *const ID3D11Device.VTable = @ptrCast(self.__v);
+                const ctx: *ID3D11Device = @ptrCast(self);
+                return vt.CreateShaderResourceView(ctx, pResource, pDesc, ppSRView);
+            }
         };
     }
 
     pub const VTable = extern struct {
         const T = ID3D11Device;
-        base: IUnknown.VTable,
+        base: w32.IUnknown.VTable,
         CreateBuffer: *anyopaque,
         CreateTexture1D: *anyopaque,
-        CreateTexture2D: *anyopaque,
+        CreateTexture2D: *const fn (*T, *const D3D11_TEXTURE2D_DESC, ?*const D3D11_SUBRESOURCE_DATA, *?*ID3D11Texture2D) callconv(.winapi) w32.HRESULT,
         CreateTexture3D: *anyopaque,
-        CreateShaderResourceView: *anyopaque,
+        CreateShaderResourceView: *const fn (*T, *const ID3D11Resource, ?*const D3D11_SHADER_RESOURCE_VIEW_DESC, ?*?*ID3D11ShaderResourceView) callconv(.winapi) w32.HRESULT,
         CreateUnorderedAccessView: *anyopaque,
         CreateRenderTargetView: *const fn (*T, ?*ID3D11Resource, ?*const anyopaque, ?*?*ID3D11RenderTargetView) callconv(.winapi) w32.HRESULT,
         CreateDepthStencilView: *anyopaque,
@@ -464,7 +636,7 @@ const ID3D11DeviceChild = extern struct {
     __v: *const VTable,
 
     pub const VTable = extern struct {
-        base: IUnknown.VTable,
+        base: w32.IUnknown.VTable,
         GetDevice: *anyopaque,
         GetPrivateData: *anyopaque,
         SetPrivateData: *anyopaque,
@@ -474,7 +646,7 @@ const ID3D11DeviceChild = extern struct {
 
 pub const ID3D11RenderTargetView = extern struct {
     __v: *const VTable,
-    Unknown: IUnknown.Mixin(@This()) = .{},
+    Unknown: w32.IUnknown.Mixin(@This()) = .{},
 
     pub const VTable = extern struct {
         base: ID3D11View.VTable,
@@ -495,7 +667,7 @@ pub const ID3D11DeviceContext = extern struct {
     __v: *const VTable,
 
     DeviceContext: Mixin(@This()),
-    Unknown: IUnknown.Mixin(@This()),
+    Unknown: w32.IUnknown.Mixin(@This()),
 
     pub fn Mixin(comptime T: type) type {
         return struct {
@@ -661,11 +833,22 @@ pub const ID3D11DeviceContext = extern struct {
 
 pub const ID3D11Texture2D = extern struct {
     __v: *const VTable,
-    Unknown: IUnknown.Mixin(@This()) = .{},
+    Unknown: w32.IUnknown.Mixin(@This()) = .{},
 
     pub const IID = w32.GUID.parse("{6f15aaf2-d208-4e89-9ab4-489535d34f9c}");
     pub const VTable = extern struct {
         base: ID3D11Resource.VTable,
+        GetDesc: *anyopaque,
+    };
+};
+
+pub const ID3D11ShaderResourceView = extern struct {
+    __v: *const VTable,
+    Unknown: w32.IUnknown.Mixin(@This()) = .{},
+
+    pub const IID = w32.GUID.parse("{b0e06fe0-8192-4e1a-b1ca-36d7414710b2}");
+    pub const VTable = extern struct {
+        base: ID3D11View.VTable,
         GetDesc: *anyopaque,
     };
 };

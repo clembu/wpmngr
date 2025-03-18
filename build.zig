@@ -48,6 +48,7 @@ pub fn build(b: *std.Build) void {
     imgui.linkSystemLibrary("dwmapi");
     imgui.linkSystemLibrary("d3dcompiler_47");
     imgui.linkSystemLibrary("gdi32");
+    imgui.linkSystemLibrary("ole32");
     imgui.root_module.addCMacro("IMGUI_IMPL_API", "extern \"C\"");
 
     imgui.linkLibC();
