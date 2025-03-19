@@ -444,6 +444,86 @@ pub const D3D11_BUFFEREX_SRV = extern struct {
     Flags: D3D11_BUFFEREX_SRV_FLAG,
 };
 
+pub const D3D11_SAMPLER_DESC = extern struct {
+    Filter: D3D11_FILTER,
+    AddressU: D3D11_TEXTURE_ADDRESS_MODE,
+    AddressV: D3D11_TEXTURE_ADDRESS_MODE,
+    AddressW: D3D11_TEXTURE_ADDRESS_MODE,
+    MipLODBias: w32.FLOAT,
+    MaxAnisotropy: w32.UINT,
+    ComparisonFunc: D3D11_COMPARISON_FUNC,
+    BorderColor: [4]w32.FLOAT,
+    MinLOD: w32.FLOAT,
+    MaxLOD: w32.FLOAT,
+};
+
+pub const D3D11_FILTER = enum(w32.UINT) {
+    min_mag_mip_point = 0,
+    min_mag_point_mip_linear = 0x1,
+    min_point_mag_linear_mip_point = 0x4,
+    min_point_mag_mip_linear = 0x5,
+    min_linear_mag_mip_point = 0x10,
+    min_linear_mag_point_mip_linear = 0x11,
+    min_mag_linear_mip_point = 0x14,
+    min_mag_mip_linear = 0x15,
+    anisotropic = 0x55,
+    comparison_min_mag_mip_point = 0x80,
+    comparison_min_mag_point_mip_linear = 0x81,
+    comparison_min_point_mag_linear_mip_point = 0x84,
+    comparison_min_point_mag_mip_linear = 0x85,
+    comparison_min_linear_mag_mip_point = 0x90,
+    comparison_min_linear_mag_point_mip_linear = 0x91,
+    comparison_min_mag_linear_mip_point = 0x94,
+    comparison_min_mag_mip_linear = 0x95,
+    comparison_anisotropic = 0xd5,
+    minimum_min_mag_mip_point = 0x100,
+    minimum_min_mag_point_mip_linear = 0x101,
+    minimum_min_point_mag_linear_mip_point = 0x104,
+    minimum_min_point_mag_mip_linear = 0x105,
+    minimum_min_linear_mag_mip_point = 0x110,
+    minimum_min_linear_mag_point_mip_linear = 0x111,
+    minimum_min_mag_linear_mip_point = 0x114,
+    minimum_min_mag_mip_linear = 0x115,
+    minimum_anisotropic = 0x155,
+    maximum_min_mag_mip_point = 0x180,
+    maximum_min_mag_point_mip_linear = 0x181,
+    maximum_min_point_mag_linear_mip_point = 0x184,
+    maximum_min_point_mag_mip_linear = 0x185,
+    maximum_min_linear_mag_mip_point = 0x190,
+    maximum_min_linear_mag_point_mip_linear = 0x191,
+    maximum_min_mag_linear_mip_point = 0x194,
+    maximum_min_mag_mip_linear = 0x195,
+    maximum_anisotropic = 0x1d5,
+};
+
+pub const D3D11_TEXTURE_ADDRESS_MODE = enum(w32.UINT) {
+    wrap = 1,
+    mirror = 2,
+    clamp = 3,
+    border = 4,
+    mirror_once = 5,
+};
+
+pub const D3D11_COMPARISON_FUNC = enum(w32.UINT) {
+    never = 1,
+    less = 2,
+    equal = 3,
+    less_equal = 4,
+    greater = 5,
+    not_equal = 6,
+    greater_equal = 7,
+    always = 8,
+};
+
+pub const D3D11_BOX = extern struct {
+    left: w32.UINT,
+    top: w32.UINT,
+    front: w32.UINT,
+    right: w32.UINT,
+    bottom: w32.UINT,
+    back: w32.UINT,
+};
+
 // Interfaces
 
 pub const IDXGISwapChain = extern struct {
@@ -572,6 +652,17 @@ pub const ID3D11Device = extern struct {
                 const ctx: *ID3D11Device = @ptrCast(self);
                 return vt.CreateShaderResourceView(ctx, pResource, pDesc, ppSRView);
             }
+
+            pub fn CreateSamplerState(
+                m: *@This(),
+                pDesc: *const D3D11_SAMPLER_DESC,
+                ppSamplerState: ?*?*ID3D11SamplerState,
+            ) w32.HRESULT {
+                const self: *T = @alignCast(@fieldParentPtr("Device", m));
+                const vt: *const ID3D11Device.VTable = @ptrCast(self.__v);
+                const ctx: *ID3D11Device = @ptrCast(self);
+                return vt.CreateSamplerState(ctx, pDesc, ppSamplerState);
+            }
         };
     }
 
@@ -598,7 +689,7 @@ pub const ID3D11Device = extern struct {
         CreateBlendState: *anyopaque,
         CreateDepthStencilState: *anyopaque,
         CreateRasterizerState: *anyopaque,
-        CreateSamplerState: *anyopaque,
+        CreateSamplerState: *const fn (*T, *const D3D11_SAMPLER_DESC, ?*?*ID3D11SamplerState) callconv(.winapi) w32.HRESULT,
         CreateQuery: *anyopaque,
         CreatePredicate: *anyopaque,
         CreateCounter: *anyopaque,
@@ -709,6 +800,47 @@ pub const ID3D11DeviceContext = extern struct {
                 const ctx: *ID3D11DeviceContext = @ptrCast(self);
                 vt.Flush(ctx);
             }
+
+            pub inline fn PSSetSamplers(
+                m: *@This(),
+                startSlot: w32.UINT,
+                samplers: []const *const ID3D11SamplerState,
+            ) void {
+                const self: *T = @alignCast(@fieldParentPtr("DeviceContext", m));
+                const vt: *const ID3D11DeviceContext.VTable = @ptrCast(self.__v);
+                const ctx: *ID3D11DeviceContext = @ptrCast(self);
+                vt.PSSetSamplers(ctx, startSlot, @intCast(samplers.len), samplers.ptr);
+            }
+
+            pub inline fn UpdateSubresource(
+                m: *@This(),
+                pDstResource: *ID3D11Resource,
+                DstSubresource: w32.UINT,
+                pDstBox: ?*const D3D11_BOX,
+                pSrcData: *const anyopaque,
+                SrcRowPitch: w32.UINT,
+                SrcDepthPitch: w32.UINT,
+            ) void {
+                const self: *T = @alignCast(@fieldParentPtr("DeviceContext", m));
+                const vt: *const ID3D11DeviceContext.VTable = @ptrCast(self.__v);
+                const ctx: *ID3D11DeviceContext = @ptrCast(self);
+                vt.UpdateSubresource(
+                    ctx,
+                    pDstResource,
+                    DstSubresource,
+                    pDstBox,
+                    pSrcData,
+                    SrcRowPitch,
+                    SrcDepthPitch,
+                );
+            }
+
+            pub inline fn GenerateMips(m: *@This(), pSRV: *ID3D11ShaderResourceView) void {
+                const self: *T = @alignCast(@fieldParentPtr("DeviceContext", m));
+                const vt: *const ID3D11DeviceContext.VTable = @ptrCast(self.__v);
+                const ctx: *ID3D11DeviceContext = @ptrCast(self);
+                vt.GenerateMips(ctx, pSRV);
+            }
         };
     }
 
@@ -718,7 +850,7 @@ pub const ID3D11DeviceContext = extern struct {
         VSSetConstantBuffers: *anyopaque,
         PSSetShaderResources: *anyopaque,
         PSSetShader: *anyopaque,
-        PSSetSamplers: *anyopaque,
+        PSSetSamplers: *const fn (*T, w32.UINT, w32.UINT, [*]const *const ID3D11SamplerState) callconv(.winapi) void,
         VSSetShader: *anyopaque,
         DrawIndexed: *anyopaque,
         Draw: *anyopaque,
@@ -761,13 +893,13 @@ pub const ID3D11DeviceContext = extern struct {
         RSSetScissorRects: *anyopaque,
         CopySubresourceRegion: *anyopaque,
         CopyResource: *anyopaque,
-        UpdateSubresource: *anyopaque,
+        UpdateSubresource: *const fn (*T, *ID3D11Resource, w32.UINT, ?*const D3D11_BOX, *const anyopaque, w32.UINT, w32.UINT) callconv(.winapi) void,
         CopyStructureCount: *anyopaque,
         ClearRenderTargetView: *const fn (*T, *ID3D11RenderTargetView, *const [4]w32.FLOAT) callconv(.winapi) void,
         ClearUnorderedAccessViewUint: *anyopaque,
         ClearUnorderedAccessViewFloat: *anyopaque,
         ClearDepthStencilView: *anyopaque,
-        GenerateMips: *anyopaque,
+        GenerateMips: *const fn (*T, *ID3D11ShaderResourceView) callconv(.winapi) void,
         SetResourceMinLOD: *anyopaque,
         GetResourceMinLOD: *anyopaque,
         ResolveSubresource: *anyopaque,
@@ -852,3 +984,16 @@ pub const ID3D11ShaderResourceView = extern struct {
         GetDesc: *anyopaque,
     };
 };
+
+pub const ID3D11SamplerState = extern struct {
+    __v: *const VTable,
+    Unknown: w32.IUnknown.Mixin(@This()) = .{},
+
+    pub const IID = w32.GUID.parse("{da6fea51-564c-4487-9810-f0d0f9b4e3a5}");
+    pub const VTable = extern struct {
+        const T = ID3D11SamplerState;
+        base: ID3D11DeviceChild.VTable,
+        GetDesc: *anyopaque,
+    };
+};
+
