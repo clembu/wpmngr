@@ -69,4 +69,30 @@ extern "C" {
         );
     }
 
+    // PlatformIO
+
+    void* CImGuiPlatformIOGetRenderState() {
+        return ImGui::GetPlatformIO().Renderer_RenderState;
+    }
+
+    // DrawList
+
+    ImDrawList* CImGuiGetWindowDrawList() {
+        return ImGui::GetWindowDrawList();
+    }
+
+    void CImGuiDrawListAddCallback(
+        ImDrawList* draw_list,
+        ImDrawCallback callback,
+        void* userdata
+    ) {
+        draw_list->AddCallback(callback, userdata);
+    }
+
+    void CImGuiDrawListAddResetCallback(
+        ImDrawList* draw_list
+    ) {
+        draw_list->AddCallback(ImDrawCallback_ResetRenderState, NULL);
+    }
+
 } // extern "c"

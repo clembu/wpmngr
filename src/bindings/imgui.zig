@@ -25,6 +25,12 @@ pub const io = struct {
     }
 };
 
+pub const platform = struct {
+    pub fn getRenderState() *anyopaque {
+        return CImGuiPlatformIOGetRenderState();
+    }
+};
+
 pub const dockSpace = struct {
     pub fn overViewport(args: struct {
         id: ID = 0,
@@ -75,6 +81,27 @@ pub fn image(texture_id: TextureID, args: struct {
 }) void {
     CImGuiImage(texture_id, &args.size, &args.uv0, &args.uv1);
 }
+
+pub fn getWindowDrawList() DrawList {
+    return CImGuiGetWindowDrawList();
+}
+
+pub const DrawList = *opaque {
+    pub fn addCallback(
+        draw_list: DrawList,
+        callback: DrawCallback,
+        callback_data: ?*anyopaque,
+    ) void {
+        CImGuiDrawListAddCallback(draw_list, callback, callback_data);
+    }
+
+    pub fn addResetCallback(draw_list: DrawList) void {
+        CImGuiDrawListAddResetCallback(draw_list);
+    }
+
+    extern fn CImGuiDrawListAddCallback(DrawList, DrawCallback, ?*anyopaque) void;
+    extern fn CImGuiDrawListAddResetCallback(DrawList) void;
+};
 
 pub const Context = *opaque {};
 pub const DrawData = *opaque {};
@@ -244,6 +271,30 @@ pub const Cond = enum(c_int) {
     appearing = 1 << 3,
 };
 
+// Note: The first parameter is a `DrawList`, but hard typing it would create a
+// cyclic dependency and zig doesn't like it.
+pub const DrawCallback = *const fn (*const anyopaque, *const anyopaque) callconv(.c) void;
+pub const DrawCmd = extern struct {
+    // 4*4  // Clipping rectangle (x1, y1, x2, y2). Subtract ImDrawData->DisplayPos to get clipping rectangle in "viewport" coordinates
+    ClipRect: [4]f32,
+    // 4-8  // User-provided texture ID. Set by user in ImfontAtlas::SetTexID() for fonts or passed to Image*() functions. Ignore if never using images or multiple fonts atlas.
+    TextureId: TextureID,
+    // 4    // Start offset in vertex buffer. ImGuiBackendFlags_RendererHasVtxOffset: always 0, otherwise may be >0 to support meshes larger than 64K vertices with 16-bit indices.
+    VtxOffset: c_uint,
+    // 4    // Start offset in index buffer.
+    IdxOffset: c_uint,
+    // 4    // Number of indices (multiple of 3) to be rendered as triangles. Vertices are stored in the callee ImDrawList's vtx_buffer[] array, indices in idx_buffer[].
+    ElemCount: c_uint,
+    // 4-8  // If != NULL, call the function instead of rendering the vertices. clip_rect and texture_id will be set normally.
+    UserCallback: ?DrawCallback,
+    // 4-8  // Callback user data (when UserCallback != NULL). If called AddCallback() with size == 0, this is a copy of the AddCallback() argument. If called AddCallback() with size > 0, this is pointing to a buffer where data is stored.
+    UserCallbackData: ?*const anyopaque,
+    // 4 // Size of callback user data when using storage, otherwise 0.
+    UserCallbackDataSize: c_int,
+    // 4 // [Internal] Offset of callback user data when using storage, otherwise -1.
+    UserCallbackDataOffset: c_int,
+};
+
 extern fn CImGuiCreateContext(?*anyopaque) Context;
 extern fn CImGuiDestroyContext(?Context) void;
 extern fn CImGuiNewFrame() void;
@@ -257,3 +308,5 @@ extern fn CImGuiDockSpaceOverViewport(ID, ?*const Viewport, DockNodeFlags, ?*con
 extern fn CImGuiSetNextWindowDockID(ID, Cond) void;
 extern fn CImGuiImage(TextureID, *const [2]f32, *const [2]f32, *const [2]f32) void;
 extern fn CImGuiGetContentRegionAvail(*[2]f32) void;
+extern fn CImGuiGetWindowDrawList() DrawList;
+extern fn CImGuiPlatformIOGetRenderState() *anyopaque;

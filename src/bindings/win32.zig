@@ -18,6 +18,7 @@ pub const FLOAT = w32.FLOAT;
 pub const GUID = w32.GUID;
 pub const TRUE = w32.TRUE;
 pub const FALSE = w32.FALSE;
+pub const S_OK = w32.S_OK;
 
 pub const PATH_MAX_WIDE = w32.PATH_MAX_WIDE;
 

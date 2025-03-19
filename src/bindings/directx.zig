@@ -524,6 +524,41 @@ pub const D3D11_BOX = extern struct {
     back: w32.UINT,
 };
 
+pub const D3D11_FORMAT_SUPPORT = packed struct(w32.UINT) {
+    buffer: bool = false,
+    ia_vertex_buffer: bool = false,
+    ia_index_buffer: bool = false,
+    so_buffer: bool = false,
+    texture1d: bool = false,
+    texture2d: bool = false,
+    texture3d: bool = false,
+    texturecube: bool = false,
+    shader_load: bool = false,
+    shader_sample: bool = false,
+    shader_sample_comparison: bool = false,
+    shader_sample_mono_text: bool = false,
+    mip: bool = false,
+    mip_autogen: bool = false,
+    render_target: bool = false,
+    blendable: bool = false,
+    depth_stencil: bool = false,
+    cpu_lockable: bool = false,
+    multisample_resolve: bool = false,
+    display: bool = false,
+    cast_within_bit_layout: bool = false,
+    multisample_rendertarget: bool = false,
+    multisample_load: bool = false,
+    shader_gather: bool = false,
+    back_buffer_cast: bool = false,
+    typed_unordered_access_view: bool = false,
+    shader_gather_comparison: bool = false,
+    decoder_output: bool = false,
+    video_processor_output: bool = false,
+    video_processor_input: bool = false,
+    video_encoder: bool = false,
+    _unused_32: bool = false,
+};
+
 // Interfaces
 
 pub const IDXGISwapChain = extern struct {
@@ -663,6 +698,17 @@ pub const ID3D11Device = extern struct {
                 const ctx: *ID3D11Device = @ptrCast(self);
                 return vt.CreateSamplerState(ctx, pDesc, ppSamplerState);
             }
+
+            pub fn CheckFormatSupport(
+                m: *@This(),
+                format: DXGI_FORMAT,
+                pFormatSupport: *D3D11_FORMAT_SUPPORT,
+            ) w32.HRESULT {
+                const self: *T = @alignCast(@fieldParentPtr("Device", m));
+                const vt: *const ID3D11Device.VTable = @ptrCast(self.__v);
+                const ctx: *ID3D11Device = @ptrCast(self);
+                return vt.CheckFormatSupport(ctx, format, pFormatSupport);
+            }
         };
     }
 
@@ -695,7 +741,7 @@ pub const ID3D11Device = extern struct {
         CreateCounter: *anyopaque,
         CreateDeferredContext: *anyopaque,
         OpenSharedResource: *anyopaque,
-        CheckFormatSupport: *anyopaque,
+        CheckFormatSupport: *const fn (*T, DXGI_FORMAT, *D3D11_FORMAT_SUPPORT) callconv(.winapi) w32.HRESULT,
         CheckMultisampleQualityLevels: *anyopaque,
         CheckCounterInfo: *anyopaque,
         CheckCounter: *anyopaque,
@@ -997,3 +1043,14 @@ pub const ID3D11SamplerState = extern struct {
     };
 };
 
+pub const ID3D11Buffer = extern struct {
+    __v: *const VTable,
+    Unknown: w32.IUnknown.Mixin(@This()) = .{},
+
+    pub const IID = w32.GUID.parse("{48570b85-d1ee-4fcd-a250-eb350722b037}");
+    pub const VTable = extern struct {
+        const T = ID3D11Buffer;
+        base: ID3D11Resource.VTable,
+        GetDesc: *anyopaque,
+    };
+};

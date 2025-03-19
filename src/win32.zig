@@ -10,17 +10,17 @@ const App = @import("app.zig");
 const MAIN_WINDOW_CLASS = "WPMNGR";
 
 pub fn main() !void {
-    _ = w32.CoInitializeEx(null, 0);
-    defer _ = w32.CoUninitialize();
+    loghresult("CoInitialize", w32.CoInitializeEx(null, 0));
+    defer loghresult("CoUninitialize", w32.CoUninitialize());
 
     var wicfac: ?*wic.IWICImagingFactory = null;
-    _ = w32.CoCreateInstance(
+    loghresult("CoCreateInstance", w32.CoCreateInstance(
         &wic.IWICImagingFactory.CLSID,
         null,
         w32.CLSCTX_INPROC_SERVER,
         &wic.IWICImagingFactory.IID,
         @ptrCast(&wicfac),
-    );
+    ));
     defer _ = wicfac.?.Unknown.Release();
 
     var gpa: std.heap.DebugAllocator(.{}) = .init;
@@ -35,55 +35,55 @@ pub fn main() !void {
     args.deinit();
 
     var decoder: ?*wic.IWICBitmapDecoder = null;
-    _ = wicfac.?.ImagingFactory.CreateDecoderFromFilename(
+    loghresult("CreateDecoderFromFilename", wicfac.?.ImagingFactory.CreateDecoderFromFilename(
         imgpathw,
         null,
         .{ .read = true },
         .{ .cache_metadata_on_load = true },
         &decoder,
-    );
+    ));
     defer _ = decoder.?.Unknown.Release();
 
     var frame: ?*wic.IWICBitmapFrameDecode = null;
-    _ = decoder.?.BitmapDecoder.GetFrame(0, &frame);
+    loghresult("Get Frame", decoder.?.BitmapDecoder.GetFrame(0, &frame));
     defer _ = frame.?.Unknown.Release();
 
     var img_conv: ?*wic.IWICFormatConverter = null;
-    _ = wicfac.?.ImagingFactory.CreateFormatConverter(&img_conv);
+    loghresult(
+        "Create Format Converter",
+        wicfac.?.ImagingFactory.CreateFormatConverter(&img_conv),
+    );
     defer _ = img_conv.?.Unknown.Release();
-    _ = img_conv.?.FormatConverter.Initialize(
+    loghresult("Initialize Format Converter", img_conv.?.FormatConverter.Initialize(
         @as(*wic.IWICBitmapSource, @ptrCast(frame.?)),
         &wic.GUID_WICPixelFormat32bppRGBA,
         .none,
         null,
         0.0,
         0,
-    );
+    ));
 
     var width: u32 = undefined;
     var height: u32 = undefined;
-    _ = img_conv.?.BitmapSource.GetSize(&width, &height);
+    loghresult("Get Bitmap Size", img_conv.?.BitmapSource.GetSize(&width, &height));
 
     const imgbfr = try allocator.alloc(u8, width * height * 4);
 
-    _ = img_conv.?.BitmapSource.CopyPixels(null, width * 4, imgbfr);
+    loghresult(
+        "Copy Pixels",
+        img_conv.?.BitmapSource.CopyPixels(null, width * 4, imgbfr),
+    );
 
     var desc = std.mem.zeroes(dx.D3D11_TEXTURE2D_DESC);
     desc.Width = width;
     desc.Height = height;
-    desc.MipLevels = 1;
+    desc.MipLevels = 0;
     desc.ArraySize = 1;
     desc.Format = .R8G8B8A8_UNORM;
     desc.SampleDesc.Count = 1;
     desc.Usage = .DEFAULT;
-    desc.BindFlags = .{ .SHADER_RESOURCE = true };
-    desc.CPUAccessFlags = .{};
-
-    const initData: dx.D3D11_SUBRESOURCE_DATA = .{
-        .pSysMem = @ptrCast(imgbfr.ptr),
-        .SysMemPitch = width * 4,
-        .SysMemSlicePitch = 0,
-    };
+    desc.BindFlags = .{ .SHADER_RESOURCE = true, .RENDER_TARGET = true };
+    desc.MiscFlags = .{ .GENERATE_MIPS = true };
 
     const imctx = imgui.init();
     defer imgui.deinit(imctx);
@@ -119,7 +119,7 @@ pub fn main() !void {
         null,
     );
 
-    _ = try imgui_w32.init(hwnd.?);
+    try imgui_w32.init(hwnd.?);
     defer imgui_w32.deinit();
 
     const scd: dx.DXGI_SWAP_CHAIN_DESC = .{
@@ -155,7 +155,7 @@ pub fn main() !void {
     var dev: ?*dx.ID3D11Device = null;
     var devctx: ?*dx.ID3D11DeviceContext = null;
 
-    _ = dx.D3D11CreateDeviceAndSwapChain(
+    loghresult("Create Device and Swap Chain", dx.D3D11CreateDeviceAndSwapChain(
         null,
         .HARDWARE,
         null,
@@ -168,50 +168,104 @@ pub fn main() !void {
         &dev,
         null,
         &devctx,
+    ));
+
+    var sampler: ?*dx.ID3D11SamplerState = null;
+
+    const samplerdesc: dx.D3D11_SAMPLER_DESC = .{
+        .MinLOD = 0,
+        .MaxLOD = 14,
+        .MipLODBias = 0,
+        .MaxAnisotropy = 16,
+        .ComparisonFunc = .equal,
+        .BorderColor = @splat(0),
+        .AddressW = .clamp,
+        .AddressV = .clamp,
+        .AddressU = .clamp,
+        .Filter = .min_linear_mag_point_mip_linear,
+    };
+
+    loghresult(
+        "Create Sampler",
+        dev.?.Device.CreateSamplerState(&samplerdesc, &sampler),
     );
+
     var gctx: Context = .{
         .devctx = devctx.?,
         .mainRTV = null,
         .sc = sc.?,
         .dev = dev.?,
-        .app = .init(),
+        .app = .init(set_sampler),
     };
 
     defer _ = gctx.dev.Unknown.Release();
     defer _ = gctx.devctx.Unknown.Release();
     defer _ = gctx.sc.Unknown.Release();
-    defer _ = if (gctx.mainRTV) |rtv| rtv.Unknown.Release();
+    defer if (gctx.mainRTV) |rtv| {
+        _ = rtv.Unknown.Release();
+    };
 
     var texture: ?*dx.ID3D11Texture2D = null;
-    _ = gctx.dev.Device.CreateTexture2D(&desc, &initData, &texture);
+    loghresult("Create Texture2D", gctx.dev.Device.CreateTexture2D(
+        &desc,
+        null,
+        &texture,
+    ));
     defer _ = texture.?.Unknown.Release();
 
-    var srvdesc = std.mem.zeroes(dx.D3D11_SHADER_RESOURCE_VIEW_DESC);
-    srvdesc.Format = .R8G8B8A8_UNORM;
-    srvdesc.ViewDimension = .texture2d;
-    srvdesc.u.Texture2D.MipLevels = desc.MipLevels;
-    srvdesc.u.Texture2D.MostDetailedMip = 0;
     var srv: ?*dx.ID3D11ShaderResourceView = null;
-    _ = gctx.dev.Device.CreateShaderResourceView(@ptrCast(texture.?), &srvdesc, &srv);
-    _ = texture.?.Unknown.Release();
+    loghresult("Create SRV", gctx.dev.Device.CreateShaderResourceView(
+        @ptrCast(texture.?),
+        null,
+        &srv,
+    ));
+
+    gctx.devctx.DeviceContext.UpdateSubresource(
+        @ptrCast(texture.?),
+        0,
+        null,
+        @ptrCast(imgbfr.ptr),
+        width * 4,
+        height * width * 4,
+    );
+
+    var fmt_support: dx.D3D11_FORMAT_SUPPORT = undefined;
+    loghresult(
+        "Check format support",
+        gctx.dev.Device.CheckFormatSupport(desc.Format, &fmt_support),
+    );
+    if (fmt_support.mip_autogen) {
+        std.log.info("We support mip gen", .{});
+        gctx.devctx.DeviceContext.GenerateMips(srv.?);
+    } else {
+        std.log.warn("We do not support mip gen", .{});
+    }
+
     allocator.free(imgbfr);
     if (srv) |t| {
         gctx.app.image = .{
             .txid = t,
             .width = width,
             .height = height,
+            .sampler = sampler.?,
         };
     }
     defer if (srv) |t| {
         _ = t.Unknown.Release();
     };
 
-    _ = try imgui_dx11.init(gctx.dev, gctx.devctx);
+    try imgui_dx11.init(gctx.dev, gctx.devctx);
     defer imgui_dx11.deinit();
 
     var backbfr: ?*dx.ID3D11Texture2D = null;
-    _ = gctx.sc.SwapChain.GetBuffer(0, &dx.ID3D11Texture2D.IID, @ptrCast(&backbfr));
-    _ = gctx.dev.Device.CreateRenderTargetView(@ptrCast(backbfr), null, @ptrCast(&gctx.mainRTV));
+    loghresult(
+        "Get SwapChain Buffer",
+        gctx.sc.SwapChain.GetBuffer(0, &dx.ID3D11Texture2D.IID, @ptrCast(&backbfr)),
+    );
+    loghresult(
+        "Create RTV",
+        gctx.dev.Device.CreateRenderTargetView(@ptrCast(backbfr), null, @ptrCast(&gctx.mainRTV)),
+    );
     _ = backbfr.?.Unknown.Release();
 
     _ = w32.setWindowUserData(hwnd.?, &gctx);
@@ -309,3 +363,25 @@ const Context = struct {
         _ = ctx.sc.SwapChain.Present(1, .{});
     }
 };
+
+fn loghresult(name: []const u8, hr: w32.HRESULT) void {
+    if (hr == w32.S_OK) return;
+    const uhr: u32 = @as(u32, @bitCast(hr));
+    if (uhr & 0xffff_0000 == 0) {
+        const w32err = w32.HRESULT_CODE(hr);
+        std.log.err("{s}:\t0x{x} - {any}", .{ name, uhr, w32err });
+    } else {
+        std.log.err("{s}\t0x{x}", .{ name, uhr });
+    }
+}
+
+fn set_sampler(drawlist_: *const anyopaque, cmd_: *const anyopaque) callconv(.c) void {
+    _ = drawlist_;
+    const cmd: *const imgui.DrawCmd = @ptrCast(@alignCast(cmd_));
+    if (cmd.UserCallbackData) |cbdata| {
+        const sampler: *const dx.ID3D11SamplerState = @ptrCast(@alignCast(cbdata));
+        const rstate: *imgui_dx11.RenderState = @ptrCast(@alignCast(imgui.platform.getRenderState()));
+        const samplers: [1]*const dx.ID3D11SamplerState = .{sampler};
+        rstate.device_ctx.DeviceContext.PSSetSamplers(0, &samplers);
+    }
+}

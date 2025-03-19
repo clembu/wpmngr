@@ -22,6 +22,13 @@ pub fn render(data: imgui.DrawData) void {
     ImGui_ImplDX11_RenderDrawData(data);
 }
 
+pub const RenderState = struct {
+    device: *dx.ID3D11Device,
+    device_ctx: *dx.ID3D11DeviceContext,
+    sampler_default: *dx.ID3D11SamplerState,
+    vcb: *dx.ID3D11Buffer,
+};
+
 extern fn ImGui_ImplDX11_Init(*dx.ID3D11Device, *dx.ID3D11DeviceContext) bool;
 extern fn ImGui_ImplDX11_Shutdown() void;
 extern fn ImGui_ImplDX11_NewFrame() void;
