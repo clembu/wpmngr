@@ -195,7 +195,7 @@ pub fn main() !void {
         .mainRTV = null,
         .sc = sc.?,
         .dev = dev.?,
-        .app = .init(set_sampler),
+        .app = .init(set_sampler, set_blender),
     };
 
     defer _ = gctx.dev.Unknown.Release();
@@ -385,3 +385,30 @@ fn set_sampler(drawlist_: *const anyopaque, cmd_: *const anyopaque) callconv(.c)
         rstate.device_ctx.DeviceContext.PSSetSamplers(0, &samplers);
     }
 }
+
+fn set_blender(drawlist_: *const anyopaque, cmd_: *const anyopaque) callconv(.c) void {
+    _ = drawlist_;
+    const cmd: *const imgui.DrawCmd = @ptrCast(@alignCast(cmd_));
+    const rstate: *imgui_dx11.RenderState = @ptrCast(@alignCast(imgui.platform.getRenderState()));
+    var blendState: ?*dx.ID3D11BlendState = null;
+    if (cmd.UserCallbackData) |cbdata| {
+        const blender: *const App.BlendState =
+            @ptrCast(@alignCast(cbdata));
+        var blendDesc = std.mem.zeroes(dx.D3D11_BLEND_DESC);
+        blendDesc.renderTarget[0].BlendEnable = w32.TRUE;
+        blendDesc.renderTarget[0].SrcBlend = blender.srcBlend;
+        blendDesc.renderTarget[0].DestBlend = blender.destBlend;
+        blendDesc.renderTarget[0].BlendOp = blender.blendOp;
+        blendDesc.renderTarget[0].SrcBlendAlpha = blender.srcBlendAlpha;
+        blendDesc.renderTarget[0].DestBlendAlpha = blender.destBlendAlpha;
+        blendDesc.renderTarget[0].BlendOpAlpha = blender.blendOpAlpha;
+        blendDesc.renderTarget[0].RenderTargetWriteMask = .all;
+
+        loghresult(
+            "Create Blend State",
+            rstate.device.Device.CreateBlendState(&blendDesc, &blendState),
+        );
+    }
+    rstate.device_ctx.DeviceContext.OMSetBlendState(blendState, &.{ 0, 0, 0, 0 }, 0xffff_ffff);
+}
+

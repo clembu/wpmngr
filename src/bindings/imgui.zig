@@ -74,6 +74,21 @@ pub fn getContentRegionAvail() [2]f32 {
     return avail;
 }
 
+pub const cursor = struct {
+    pub fn getScreenPos() [2]f32 {
+        var pos: [2]f32 = undefined;
+        CImGuiGetCursorScreenPos(&pos);
+        return pos;
+    }
+
+    pub fn setScreenPos(pos: [2]f32) void {
+        CImGuiSetCursorScreenPos(&pos);
+    }
+
+    extern fn CImGuiGetCursorScreenPos(*[2]f32) void;
+    extern fn CImGuiSetCursorScreenPos(*const [2]f32) void;
+};
+
 pub fn image(texture_id: TextureID, args: struct {
     size: [2]f32,
     uv0: [2]f32 = .{ 0.0, 0.0 },
@@ -82,11 +97,89 @@ pub fn image(texture_id: TextureID, args: struct {
     CImGuiImage(texture_id, &args.size, &args.uv0, &args.uv1);
 }
 
+pub fn selectable(
+    label: [:0]const u8,
+    selected: bool,
+    opts: struct {
+        flags: SelectableFlags = .{},
+        size: [2]f32 = .{ 0, 0 },
+    },
+) bool {
+    return CImGuiSelectable(label, selected, opts.flags, &opts.size);
+}
+
+pub const SelectableFlags = packed struct(c_uint) {
+    /// Clicking this doesn't close parent popup window (overrides ImGuiItemFlags_AutoClosePopups)
+    noAutoClosePopups: bool = false,
+    /// Frame will span all columns of its container table (text will still fit in current column)
+    spanAllColumns: bool = false,
+    /// Generate press events on double clicks too
+    allowDoubleClick: bool = false,
+    /// Cannot be selected, display grayed out text
+    disabled: bool = false,
+    /// (WIP) Hit testing to allow subsequent widgets to overlap this one
+    allowOverlap: bool = false,
+    /// Make the item be displayed as if it is hovered
+    highlight: bool = false,
+    _unused_7_32: u26 = 0,
+};
+
+pub const ComboFlags = packed struct(c_uint) {
+    /// Align the popup toward the left by default
+    popupAlignLeft: bool = false,
+    height: enum(u4) {
+        default = 0b0000,
+        /// Max ~4 items visible. Tip: If you want your combo popup to be a specific size you can use SetNextWindowSizeConstraints() prior to calling BeginCombo()
+        small = 0b0001,
+        /// Max ~8 items visible (default)
+        regular = 0b0010,
+        /// max ~20 items visible
+        large = 0b0100,
+        /// as many fitting items as possible
+        largest = 0b1000,
+    } = .default,
+    /// Display on the preview box without the square arrow button
+    noArrowButton: bool = false,
+    /// Display only a square arrow button
+    noPreview: bool = false,
+    /// Width dynamically calculated from preview contents
+    widthFitPreview: bool = false,
+    _unused_9_32: u24 = 0,
+};
+
+pub const combo = struct {
+    pub fn begin(label: [:0]const u8, preview: ?[:0]const u8, opts: struct {
+        flags: ComboFlags = .{},
+    }) bool {
+        return CImGuiBeginCombo(label, if (preview) |p| p.ptr else null, opts.flags);
+    }
+
+    pub fn end() void {
+        CImGuiEndCombo();
+    }
+};
+
 pub fn getWindowDrawList() DrawList {
     return CImGuiGetWindowDrawList();
 }
 
 pub const DrawList = *opaque {
+    pub fn addRect(draw_list: DrawList, p_min: [2]f32, p_max: [2]f32, col: u32, opts: struct {
+        rounding: f32 = 0,
+        flags: DrawFlags = .{},
+        thickness: f32 = 1,
+    }) void {
+        CImGuiDrawListAddRect(
+            draw_list,
+            &p_min,
+            &p_max,
+            col,
+            opts.rounding,
+            opts.flags,
+            opts.thickness,
+        );
+    }
+
     pub fn addCallback(
         draw_list: DrawList,
         callback: DrawCallback,
@@ -101,6 +194,7 @@ pub const DrawList = *opaque {
 
     extern fn CImGuiDrawListAddCallback(DrawList, DrawCallback, ?*anyopaque) void;
     extern fn CImGuiDrawListAddResetCallback(DrawList) void;
+    extern fn CImGuiDrawListAddRect(DrawList, *const [2]f32, *const [2]f32, u32, f32, DrawFlags, f32) void;
 };
 
 pub const Context = *opaque {};
@@ -295,6 +389,49 @@ pub const DrawCmd = extern struct {
     UserCallbackDataOffset: c_int,
 };
 
+pub const DrawFlags = packed struct(c_uint) {
+    /// PathStroke(), AddPolyline(): specify that shape should be closed (Important: this is always == 1 for legacy reason)
+    closed: bool = false,
+    _unused_1_3: u3 = 0,
+    round_corners: packed struct(u5) {
+        /// AddRect(), AddRectFilled(), PathRect(): enable rounding top-left corner only (when rounding > 0.0f, we default to all corners). Was 0x01.
+        topLeft: bool = false,
+        /// AddRect(), AddRectFilled(), PathRect(): enable rounding top-right corner only (when rounding > 0.0f, we default to all corners). Was 0x02.
+        topRight: bool = false,
+        /// AddRect(), AddRectFilled(), PathRect(): enable rounding bottom-left corner only (when rounding > 0.0f, we default to all corners). Was 0x04.
+        bottomLeft: bool = false,
+        /// AddRect(), AddRectFilled(), PathRect(): enable rounding bottom-right corner only (when rounding > 0.0f, we default to all corners). Wax 0x08.
+        bottomRight: bool = false,
+        /// AddRect(), AddRectFilled(), PathRect(): disable rounding on all corners (when rounding > 0.0f). This is NOT zero, NOT an implicit flag!
+        none: bool = false,
+
+        pub const all: @This() = .{
+            .topLeft = true,
+            .topRight = true,
+            .bottomLeft = true,
+            .bottomRight = true,
+        };
+        pub const top: @This() = .{
+            .topLeft = true,
+            .topRight = true,
+        };
+        pub const bottom: @This() = .{
+            .bottomLeft = true,
+            .bottomRight = true,
+        };
+
+        pub const left: @This() = .{
+            .topLeft = true,
+            .bottomLeft = true,
+        };
+        pub const right: @This() = .{
+            .topRight = true,
+            .bottomRight = true,
+        };
+    } = .{},
+    _unused_10_32: u23 = 0,
+};
+
 extern fn CImGuiCreateContext(?*anyopaque) Context;
 extern fn CImGuiDestroyContext(?Context) void;
 extern fn CImGuiNewFrame() void;
@@ -310,3 +447,6 @@ extern fn CImGuiImage(TextureID, *const [2]f32, *const [2]f32, *const [2]f32) vo
 extern fn CImGuiGetContentRegionAvail(*[2]f32) void;
 extern fn CImGuiGetWindowDrawList() DrawList;
 extern fn CImGuiPlatformIOGetRenderState() *anyopaque;
+extern fn CImGuiSelectable([*:0]const u8, bool, SelectableFlags, *const [2]f32) bool;
+extern fn CImGuiBeginCombo([*:0]const u8, ?[*:0]const u8, ComboFlags) bool;
+extern fn CImGuiEndCombo() void;

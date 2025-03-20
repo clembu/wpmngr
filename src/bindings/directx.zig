@@ -559,6 +559,66 @@ pub const D3D11_FORMAT_SUPPORT = packed struct(w32.UINT) {
     _unused_32: bool = false,
 };
 
+pub const D3D11_BLEND = enum(w32.UINT) {
+    zero = 1,
+    one = 2,
+    src_color = 3,
+    inv_src_color = 4,
+    src_alpha = 5,
+    inv_src_alpha = 6,
+    dest_alpha = 7,
+    inv_dest_alpha = 8,
+    dest_color = 9,
+    inv_dest_color = 10,
+    src_alpha_sat = 11,
+    blend_factor = 14,
+    inv_blend_factor = 15,
+    src1_color = 16,
+    inv_src1_color = 17,
+    src1_alpha = 18,
+    inv_src1_alpha = 19,
+};
+
+pub const D3D11_BLEND_OP = enum(w32.UINT) {
+    add = 1,
+    subtract = 2,
+    rev_subtract = 3,
+    min = 4,
+    max = 5,
+};
+
+pub const D3D11_BLEND_DESC = extern struct {
+    alphaToCoverageEnable: w32.BOOL,
+    IndependentBlendEnable: w32.BOOL,
+    renderTarget: [8]D3D11_RENDER_TARGET_BLEND_DESC,
+};
+
+pub const D3D11_RENDER_TARGET_BLEND_DESC = extern struct {
+    BlendEnable: w32.BOOL,
+    SrcBlend: D3D11_BLEND,
+    DestBlend: D3D11_BLEND,
+    BlendOp: D3D11_BLEND_OP,
+    SrcBlendAlpha: D3D11_BLEND,
+    DestBlendAlpha: D3D11_BLEND,
+    BlendOpAlpha: D3D11_BLEND_OP,
+    RenderTargetWriteMask: D3D11_COLOR_WRITE_ENABLE,
+};
+
+pub const D3D11_COLOR_WRITE_ENABLE = packed struct(u8) {
+    red: bool = false,
+    green: bool = false,
+    blue: bool = false,
+    alpha: bool = false,
+    _unused_4_8: u4 = 0,
+
+    pub const all: D3D11_COLOR_WRITE_ENABLE = .{
+        .red = true,
+        .green = true,
+        .blue = true,
+        .alpha = true,
+    };
+};
+
 // Interfaces
 
 pub const IDXGISwapChain = extern struct {
@@ -709,6 +769,17 @@ pub const ID3D11Device = extern struct {
                 const ctx: *ID3D11Device = @ptrCast(self);
                 return vt.CheckFormatSupport(ctx, format, pFormatSupport);
             }
+
+            pub fn CreateBlendState(
+                m: *@This(),
+                pBlendStateDesc: *const D3D11_BLEND_DESC,
+                ppBlendState: ?*?*ID3D11BlendState,
+            ) w32.HRESULT {
+                const self: *T = @alignCast(@fieldParentPtr("Device", m));
+                const vt: *const ID3D11Device.VTable = @ptrCast(self.__v);
+                const ctx: *ID3D11Device = @ptrCast(self);
+                return vt.CreateBlendState(ctx, pBlendStateDesc, ppBlendState);
+            }
         };
     }
 
@@ -732,7 +803,7 @@ pub const ID3D11Device = extern struct {
         CreateDomainShader: *anyopaque,
         CreateComputeShader: *anyopaque,
         CreateClassLinkage: *anyopaque,
-        CreateBlendState: *anyopaque,
+        CreateBlendState: *const fn (*T, *const D3D11_BLEND_DESC, ?*?*ID3D11BlendState) callconv(.winapi) w32.HRESULT,
         CreateDepthStencilState: *anyopaque,
         CreateRasterizerState: *anyopaque,
         CreateSamplerState: *const fn (*T, *const D3D11_SAMPLER_DESC, ?*?*ID3D11SamplerState) callconv(.winapi) w32.HRESULT,
@@ -822,6 +893,23 @@ pub const ID3D11DeviceContext = extern struct {
                     NumViews,
                     ppRenderTargetViews,
                     pDepthStencilView,
+                );
+            }
+
+            pub fn OMSetBlendState(
+                m: *@This(),
+                pBlendState: ?*ID3D11BlendState,
+                BlendFactor: ?*const [4]w32.FLOAT,
+                SampleMask: w32.UINT,
+            ) void {
+                const self: *T = @alignCast(@fieldParentPtr("DeviceContext", m));
+                const vt: *const ID3D11DeviceContext.VTable = @ptrCast(self.__v);
+                const ctx: *ID3D11DeviceContext = @ptrCast(self);
+                return vt.OMSetBlendState(
+                    ctx,
+                    pBlendState,
+                    BlendFactor,
+                    SampleMask,
                 );
             }
 
@@ -926,7 +1014,7 @@ pub const ID3D11DeviceContext = extern struct {
             ?*anyopaque,
         ) callconv(.winapi) void,
         OMSetRenderTargetsAndUnorderedAccessViews: *anyopaque,
-        OMSetBlendState: *anyopaque,
+        OMSetBlendState: *const fn (*T, ?*ID3D11BlendState, ?*const [4]w32.FLOAT, w32.UINT) callconv(.winapi) void,
         OMSetDepthStencilState: *anyopaque,
         SOSetTargets: *anyopaque,
         DrawAuto: *anyopaque,
@@ -1051,6 +1139,18 @@ pub const ID3D11Buffer = extern struct {
     pub const VTable = extern struct {
         const T = ID3D11Buffer;
         base: ID3D11Resource.VTable,
+        GetDesc: *anyopaque,
+    };
+};
+
+pub const ID3D11BlendState = extern struct {
+    __v: *const VTable,
+    Unknown: w32.IUnknown.Mixin(@This()) = .{},
+
+    pub const IID = w32.GUID.parse("{75b68faa-347d-4159-8f45-a0640f01cd9a}");
+    pub const VTable = extern struct {
+        const T = ID3D11BlendState;
+        base: ID3D11DeviceChild.VTable,
         GetDesc: *anyopaque,
     };
 };
