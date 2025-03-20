@@ -98,6 +98,16 @@ extern "C" {
         return ImGui::Selectable(label, selected, flags, {size[0], size[1]});
     };
 
+    // "bool* p_selected" point to the selection state (read-write), as a convenient helper.
+    bool CImGuiSelectablePtr(
+        const char* label,
+        bool* p_selected,
+        ImGuiSelectableFlags flags = 0,
+        const ImVec2& size = ImVec2(0, 0)
+    ) {
+        return ImGui::Selectable(label, p_selected, flags, {size[0], size[1]});
+    }
+
     // ComboBox
 
     bool CImGuiBeginCombo(

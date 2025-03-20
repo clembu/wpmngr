@@ -87,7 +87,7 @@ pub fn main() !void {
 
     const imctx = imgui.init();
     defer imgui.deinit(imctx);
-    imgui.io.SetConfigFlags(.{ .DockingEnable = true });
+    imgui.config.SetFlags(.{ .DockingEnable = true });
 
     const wndClass = w32.WNDCLASSEXA{
         .style = 0,
@@ -377,7 +377,7 @@ fn loghresult(name: []const u8, hr: w32.HRESULT) void {
 
 fn set_sampler(drawlist_: *const anyopaque, cmd_: *const anyopaque) callconv(.c) void {
     _ = drawlist_;
-    const cmd: *const imgui.DrawCmd = @ptrCast(@alignCast(cmd_));
+    const cmd: *const imgui.draw.Cmd = @ptrCast(@alignCast(cmd_));
     if (cmd.UserCallbackData) |cbdata| {
         const sampler: *const dx.ID3D11SamplerState = @ptrCast(@alignCast(cbdata));
         const rstate: *imgui_dx11.RenderState = @ptrCast(@alignCast(imgui.platform.getRenderState()));
@@ -388,7 +388,7 @@ fn set_sampler(drawlist_: *const anyopaque, cmd_: *const anyopaque) callconv(.c)
 
 fn set_blender(drawlist_: *const anyopaque, cmd_: *const anyopaque) callconv(.c) void {
     _ = drawlist_;
-    const cmd: *const imgui.DrawCmd = @ptrCast(@alignCast(cmd_));
+    const cmd: *const imgui.draw.Cmd = @ptrCast(@alignCast(cmd_));
     const rstate: *imgui_dx11.RenderState = @ptrCast(@alignCast(imgui.platform.getRenderState()));
     var blendState: ?*dx.ID3D11BlendState = null;
     if (cmd.UserCallbackData) |cbdata| {

@@ -5,12 +5,12 @@ const dx = @import("bindings/directx.zig");
 
 image: ?Image,
 blender: BlendState,
-set_sampler: imgui.DrawCallback,
-set_blender: imgui.DrawCallback,
+set_sampler: imgui.draw.Callback,
+set_blender: imgui.draw.Callback,
 
 pub fn init(
-    set_sampler: imgui.DrawCallback,
-    set_blender: imgui.DrawCallback,
+    set_sampler: imgui.draw.Callback,
+    set_blender: imgui.draw.Callback,
 ) @This() {
     return .{
         .image = null,
@@ -22,24 +22,24 @@ pub fn init(
 
 pub fn update(self: *@This()) void {
     const docksp = imgui.dockSpace.overViewport(.{});
-    imgui.nextWindow.setDockID(docksp, .appearing);
-    if (imgui.begin("Test Window", .{})) {
+    imgui.window.next.setDockID(docksp, .appearing);
+    if (imgui.window.begin("Test Window", .{})) {
         if (self.image) |img| {
-            const avail = imgui.getContentRegionAvail();
+            const avail = imgui.cursor.getContentRegionAvail();
             const imgheightf: f32 = @floatFromInt(img.height);
             const imgwidthf: f32 = @floatFromInt(img.width);
 
-            imgui.getWindowDrawList().addCallback(self.set_sampler, img.sampler);
+            imgui.window.getDrawList().addCallback(self.set_sampler, img.sampler);
             const imgpos = imgui.cursor.getScreenPos();
             const imgscrsize = .{
                 avail[1] / imgheightf * imgwidthf,
                 avail[1],
             };
             imgui.image(img.txid, .{ .size = imgscrsize });
-            imgui.getWindowDrawList().addResetCallback();
+            imgui.window.getDrawList().addResetCallback();
 
-            imgui.getWindowDrawList().addCallback(self.set_blender, &self.blender);
-            imgui.getWindowDrawList().addRect(
+            imgui.window.getDrawList().addCallback(self.set_blender, &self.blender);
+            imgui.window.getDrawList().addRect(
                 .{
                     imgpos[0] + (imgscrsize[0] * 0.5) - 50,
                     imgpos[1] + (imgscrsize[1] * 0.5) - 50,
@@ -50,15 +50,15 @@ pub fn update(self: *@This()) void {
                 },
                 0xffffffff,
                 .{
-                    .thickness = 8,
+                    .thickness = 1,
                 },
             );
-            imgui.getWindowDrawList().addResetCallback();
+            imgui.window.getDrawList().addResetCallback();
         }
     }
-    imgui.end();
+    imgui.window.end();
 
-    if (imgui.begin("Blend Settings", .{})) {
+    if (imgui.window.begin("Blend Settings", .{})) {
         enumCombo(dx.D3D11_BLEND, "Src Blend", &self.blender.srcBlend, .{});
         enumCombo(dx.D3D11_BLEND, "Dest Blend", &self.blender.destBlend, .{});
         enumCombo(dx.D3D11_BLEND_OP, "Op", &self.blender.blendOp, .{});
@@ -67,7 +67,7 @@ pub fn update(self: *@This()) void {
         enumCombo(dx.D3D11_BLEND_OP, "Alpha Op", &self.blender.blendOpAlpha, .{});
     }
 
-    imgui.end();
+    imgui.window.end();
 }
 
 pub const Image = struct {
@@ -88,7 +88,7 @@ pub const BlendState = struct {
 };
 
 pub fn enumCombo(comptime T: type, label: [:0]const u8, value: ?*T, opts: struct {
-    flags: imgui.ComboFlags = .{},
+    flags: imgui.combo.Flags = .{},
 }) void {
     const preview = if (value) |v|
         @tagName(v.*)
@@ -100,7 +100,7 @@ pub fn enumCombo(comptime T: type, label: [:0]const u8, value: ?*T, opts: struct
                 in_v.* == v
             else
                 false;
-            if (imgui.selectable(@tagName(v), selected, .{})) {
+            if (imgui.selectable.manual(@tagName(v), selected, .{})) {
                 if (value) |in_v|
                     in_v.* = v;
             }

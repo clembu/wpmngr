@@ -18,7 +18,7 @@ pub fn newFrame() void {
     ImGui_ImplDX11_NewFrame();
 }
 
-pub fn render(data: imgui.DrawData) void {
+pub fn render(data: imgui.draw.Data) void {
     ImGui_ImplDX11_RenderDrawData(data);
 }
 
@@ -32,4 +32,4 @@ pub const RenderState = struct {
 extern fn ImGui_ImplDX11_Init(*dx.ID3D11Device, *dx.ID3D11DeviceContext) bool;
 extern fn ImGui_ImplDX11_Shutdown() void;
 extern fn ImGui_ImplDX11_NewFrame() void;
-extern fn ImGui_ImplDX11_RenderDrawData(imgui.DrawData) void;
+extern fn ImGui_ImplDX11_RenderDrawData(imgui.draw.Data) void;
