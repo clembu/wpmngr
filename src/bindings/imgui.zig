@@ -1,3 +1,7 @@
+var tmp_buf: ?std.ArrayList(u8) = null;
+
+const std = @import("std");
+
 // ---------------
 // | Basic Types |
 // ---------------
@@ -28,7 +32,8 @@ pub const Context = *opaque {};
 /// - DLL users: heaps and globals are not shared across DLL boundaries!
 ///   You will need to call SetCurrentContext() + SetAllocatorFunctions() for each static/DLL boundary you are calling from.
 ///   Read "Context and Memory Allocators" section of imgui.cpp for details.
-pub fn init() Context {
+pub fn init(allocator: std.mem.Allocator) Context {
+    tmp_buf = .init(allocator);
     // NOTE(smugs): Default font atlas for now
     return CImGuiCreateContext(null);
 }
@@ -36,6 +41,7 @@ extern fn CImGuiCreateContext(?*anyopaque) Context;
 
 /// if given null, destroy current context
 pub fn deinit(ctx: ?Context) void {
+    tmp_buf.?.deinit();
     CImGuiDestroyContext(ctx);
 }
 extern fn CImGuiDestroyContext(?Context) void;
@@ -124,6 +130,11 @@ pub fn showDemoWindow() void {
     CImGuiShowDemoWindow();
 }
 extern fn CImGuiShowDemoWindow() void;
+
+pub fn showDefaultStyleEditor() void {
+    CImGuiShowDefaultStyleEditor();
+}
+extern fn CImGuiShowDefaultStyleEditor() void;
 
 /// -----------
 /// | Windows |
@@ -290,6 +301,74 @@ pub const cursor = struct {
     extern fn CImGuiGetContentRegionAvail(*[2]f32) void;
 };
 
+pub fn separator(opts: struct {
+    label: ?[:0]const u8 = null,
+}) void {
+    if (opts.label) |l| {
+        CImGuiSeparatorText(l);
+    } else {
+        CImGuiSeparator();
+    }
+}
+extern fn CImGuiSeparator() void;
+extern fn CImGuiSeparatorText([*:0]const u8) void;
+
+pub const layout = struct {
+    pub fn sameLine(opts: struct {
+        xoffset: f32 = 0,
+        spacing: f32 = -1,
+    }) void {
+        CImGuiSameLine(opts.xoffset, opts.spacing);
+    }
+    extern fn CImGuiSameLine(f32, f32) void;
+};
+
+// -----------------
+// | Widgets: Text |
+// -----------------
+pub fn text(comptime fmt: []const u8, args: anytype) !void {
+    // Resize the buffer if needed
+    const req_len = std.fmt.count(fmt, args);
+    if (req_len > tmp_buf.?.items.len) {
+        try tmp_buf.?.resize(@intCast(req_len));
+    }
+    const formatted = try std.fmt.bufPrint(tmp_buf.?.items, fmt, args);
+    CImGuiTextUnformatted(formatted.ptr, formatted.ptr + formatted.len);
+}
+extern fn CImGuiTextUnformatted([*]const u8, [*]const u8) void;
+
+// -----------------
+// | Widgets: Main |
+// -----------------
+
+pub fn button(label: [:0]const u8, opts: struct { size: [2]f32 = .{ 0, 0 } }) bool {
+    return CImGuiButton(label, &opts.size);
+}
+extern fn CImGuiButton([*:0]const u8, *const [2]f32) bool;
+
+pub fn invisibleButton(label: [:0]const u8, size: [2]f32, opts: struct {
+    flags: ButtonFlags = .{},
+}) bool {
+    return CImGuiInvisibleButton(label, &size, opts.flags);
+}
+extern fn CImGuiInvisibleButton([*:0]const u8, *const [2]f32, ButtonFlags) bool;
+
+pub const ButtonFlags = packed struct(c_int) {
+    mouse_button: MouseButton = .{ .left = true },
+    /// InvisibleButton(): do not disable navigation/tabbing. Otherwise disabled by default.
+    EnableNav: bool = false,
+    _unused_5_32: u28 = 0,
+
+    pub const MouseButton = packed struct(u3) {
+        /// React on left mouse button (default)
+        left: bool = false,
+        /// React on right mouse button
+        right: bool = false,
+        /// React on center mouse button
+        middle: bool = false,
+    };
+};
+
 // -------------------
 // | Widgets: Images |
 // -------------------
@@ -352,6 +431,52 @@ pub const combo = struct {
             largest = 0b1000,
         };
     };
+};
+
+// -------------------------
+// | Widgets: Drag Sliders |
+// -------------------------
+
+pub fn dragFloat(label: [:0]const u8, value: *f32, opts: struct {
+    speed: f32 = 1,
+    min: f32 = 0,
+    max: f32 = 0,
+    cfmt: [:0]const u8 = "%.3f",
+    flags: SliderFlags = .{},
+}) bool {
+    return CImGuiDragFloat(label, value, opts.speed, opts.min, opts.max, opts.cfmt, opts.flags);
+}
+extern fn CImGuiDragFloat([*:0]const u8, *f32, f32, f32, f32, [*:0]const u8, SliderFlags) bool;
+
+pub fn dragInt(label: [:0]const u8, value: *u32, opts: struct {
+    speed: f32 = 1,
+    min: u32 = 0,
+    max: u32 = 0,
+    cfmt: [:0]const u8 = "%d",
+    flags: SliderFlags = .{},
+}) bool {
+    return CImGuiDragInt(label, value, opts.speed, opts.min, opts.max, opts.cfmt, opts.flags);
+}
+extern fn CImGuiDragInt([*:0]const u8, *u32, f32, u32, u32, [*:0]const u8, SliderFlags) bool;
+
+pub const SliderFlags = packed struct(c_int) {
+    _unused_1_5: u5 = 0,
+    /// Make the widget logarithmic (linear otherwise). Consider using ImGuiSliderFlags_NoRoundToFormat with this if using a format-string with small amount of digits.
+    logarithmic: bool = false,
+    /// Disable rounding underlying value to match precision of the display format string (e.g. %.3f values are rounded to those 3 digits).
+    noRoundToFormat: bool = false,
+    /// Disable CTRL+Click or Enter key allowing to input text directly into the widget.
+    noInput: bool = false,
+    /// Enable wrapping around from max to min and from min to max. Only supported by DragXXX() functions for now.
+    wrapAround: bool = false,
+    /// Clamp value to min/max bounds when input manually with CTRL+Click. By default CTRL+Click allows going out of bounds.
+    clampOnInput: bool = false,
+    /// Clamp even if min==max==0.0f. Otherwise due to legacy reason DragXXX functions don't clamp with those values. When your clamping limits are dynamic you almost always want to use it.
+    clampZeroRange: bool = false,
+    /// Disable keyboard modifiers altering tweak speed. Useful if you want to alter tweak speed yourself based on your own logic.
+    noSpeedTweaks: bool = false,
+    _unused_13_32: u20 = 0,
+    pub const alwaysClamp: SliderFlags = .{ .clampOnInput = true, .clampZeroRange = true };
 };
 
 /// ------------------------
@@ -488,6 +613,134 @@ pub const dockSpace = struct {
     };
 };
 
+/// ----------------------------------------------
+/// | Item/Widgets Utilities and Query Functions |
+/// ----------------------------------------------
+pub const item = struct {
+    pub fn isHovered(flags: HoveredFlags) bool {
+        return CImGuiIsItemHovered(flags);
+    }
+    extern fn CImGuiIsItemHovered(HoveredFlags) bool;
+
+    pub fn isActive() bool {
+        return CImGuiIsItemActive();
+    }
+    extern fn CImGuiIsItemActive() bool;
+
+    pub fn isActivated() bool {
+        return CImGuiIsItemActivated();
+    }
+    extern fn CImGuiIsItemActivated() bool;
+
+    pub fn isDeactivated() bool {
+        return CImGuiIsItemDeactivated();
+    }
+    extern fn CImGuiIsItemDeactivated() bool;
+
+    pub const HoveredFlags = packed struct(u32) {
+        /// IsWindowHovered() only: Return true if any children of the window is hovered
+        childWindows: bool = false,
+        /// IsWindowHovered() only: Test from root window (top most parent of the current hierarchy)
+        rootWindow: bool = false,
+        /// IsWindowHovered() only: Return true if any window is hovered
+        anyWindow: bool = false,
+        /// IsWindowHovered() only: Do not consider popup hierarchy (do not treat popup emitter as parent of popup) (when used with _ChildWindows or _RootWindow)
+        noPopupHierarchy: bool = false,
+        /// IsWindowHovered() only: Consider docking hierarchy (treat dockspace host as parent of docked window) (when used with _ChildWindows or _RootWindow)
+        dockHierarchy: bool = false,
+        /// Return true even if a popup window is normally blocking access to this item/window
+        allowWhenBlockedByPopup: bool = false,
+        /// Return true even if a modal popup window is normally blocking access to this item/window. FIXME-TODO: Unavailable yet.
+        allowWhenBlockedByModal: bool = false,
+        /// Return true even if an active item is blocking access to this item/window. Useful for Drag and Drop patterns.
+        allowWhenBlockedByActiveItem: bool = false,
+        /// IsItemHovered() only: Return true even if the item uses AllowOverlap mode and is overlapped by another hoverable item.
+        allowWhenOverlappedByItem: bool = false,
+        /// IsItemHovered() only: Return true even if the position is obstructed or overlapped by another window.
+        allowWhenOverlappedByWindow: bool = false,
+        /// IsItemHovered() only: Return true even if the item is disabled
+        allowWhenDisabled: bool = false,
+        /// IsItemHovered() only: Disable using keyboard/gamepad navigation state when active, always query mouse
+        noNavOverride: bool = false,
+        _unused: u20 = 0,
+    };
+};
+
+/// ---------------------------
+/// | Inputs Utilities: Mouse |
+/// ---------------------------
+pub const mouse = struct {
+    /// did mouse button clicked? (went from !Down to Down). Same as GetMouseClickedCount() == 1.
+    pub fn isClicked(btn: MouseButton, opts: struct {
+        repeat: bool = false,
+    }) bool {
+        return CImGuiIsMouseClicked(btn, opts.repeat);
+    }
+    extern fn CImGuiIsMouseClicked(MouseButton, bool) bool;
+
+    pub fn getPos() [2]f32 {
+        var pos: [2]f32 = undefined;
+        CImGuiGetMousePos(&pos);
+        return pos;
+    }
+    extern fn CImGuiGetMousePos(*[2]f32) void;
+
+    pub fn getDelta() [2]f32 {
+        var delta: [2]f32 = undefined;
+        CImGuiGetMouseDelta(&delta);
+        return delta;
+    }
+    extern fn CImGuiGetMouseDelta(*[2]f32) void;
+
+    pub fn getDragDelta(
+        opts: struct {
+            mouse_button: MouseButton = .left,
+            lock_threshold: f32 = -1,
+        },
+    ) [2]f32 {
+        var delta: [2]f32 = undefined;
+        CImGuiGetMouseDragDelta(&delta, opts.mouse_button, opts.lock_threshold);
+        return delta;
+    }
+    extern fn CImGuiGetMouseDragDelta(*[2]f32, MouseButton, f32) void;
+
+    pub fn setPointer(ptr: MousePointer) void {
+        CImGuiSetMouseCursor(ptr);
+    }
+    extern fn CImGuiSetMouseCursor(MousePointer) void;
+
+    pub const MouseButton = enum(c_int) {
+        left = 0,
+        right = 1,
+        middle = 2,
+    };
+
+    pub const MousePointer = enum(c_int) {
+        none = -1,
+        arrow = 0,
+        /// When hovering over InputText, etc.
+        textInput,
+        /// (Unused by Dear ImGui functions)
+        resizeAll,
+        /// When hovering over a horizontal border
+        resizeNS,
+        /// When hovering over a vertical border or a column
+        resizeEW,
+        /// When hovering over the bottom-left corner of a window
+        resizeNESW,
+        /// When hovering over the bottom-right corner of a window
+        resizeNWSE,
+        /// (Unused by Dear ImGui functions. Use for e.g. hyperlinks)
+        hand,
+        /// When waiting for something to process/load.
+        wait,
+        /// When waiting for something to process/load, but application is still interactive.
+        progress,
+        /// When hovering something with disallowed interaction. Usually a crossed circle.
+        notAllowed,
+    };
+};
+
 /// ---------------
 /// | Drawing API |
 /// ---------------
@@ -517,12 +770,28 @@ pub const draw = struct {
     /// You are totally free to apply whatever transformation matrix you want to the data (depending on the use of the transformation you may want to apply it to ClipRect as well!)
     /// Important: Primitives are always added to the list and not culled (culling is done at higher-level by ImGui:: functions), if you use this API a lot consider coarse culling your drawn objects.
     pub const List = *opaque {
+        pub fn getFlags(draw_list: List) ListFlags {
+            return CImGuiDrawListGetFlags(draw_list);
+        }
+        extern fn CImGuiDrawListGetFlags(List) ListFlags;
+
+        pub fn setFlags(draw_list: List, flags: ListFlags) void {
+            CImGuiDrawListSetFlags(draw_list, flags);
+        }
+        extern fn CImGuiDrawListSetFlags(List, ListFlags) void;
+
+        pub fn addLine(draw_list: List, a: [2]f32, b: [2]f32, col: u32, opts: struct {
+            thickness: f32 = 1.0,
+        }) void {
+            CImGuiDrawListAddLine(draw_list, &a, &b, col, opts.thickness);
+        }
+        extern fn CImGuiDrawListAddLine(List, *const [2]f32, *const [2]f32, u32, f32) void;
 
         // a: upper-left, b: lower-right (== upper-left + size)
         pub fn addRect(draw_list: List, a: [2]f32, b: [2]f32, col: u32, opts: struct {
             rounding: f32 = 0,
             flags: Flags = .{},
-            thickness: f32 = 1,
+            thickness: f32 = 1.0,
         }) void {
             CImGuiDrawListAddRect(
                 draw_list,
@@ -535,6 +804,51 @@ pub const draw = struct {
             );
         }
         extern fn CImGuiDrawListAddRect(List, *const [2]f32, *const [2]f32, u32, f32, Flags, f32) void;
+
+        pub fn addQuad(
+            draw_list: List,
+            points: [4][2]f32,
+            col: u32,
+            opts: struct {
+                thickness: f32 = 1.0,
+            },
+        ) void {
+            CImGuiDrawListAddQuad(
+                draw_list,
+                &points[0],
+                &points[1],
+                &points[2],
+                &points[3],
+                col,
+                opts.thickness,
+            );
+        }
+        extern fn CImGuiDrawListAddQuad(List, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, u32, f32) void;
+
+        pub fn addImageQuad(
+            draw_list: List,
+            user_texture_id: TextureID,
+            points: [4][2]f32,
+            uvs: [4][2]f32,
+            opts: struct {
+                col: u32 = 0xffffffff,
+            },
+        ) void {
+            CImGuiDrawListAddImageQuad(
+                draw_list,
+                user_texture_id,
+                &points[0],
+                &points[1],
+                &points[2],
+                &points[3],
+                &uvs[0],
+                &uvs[1],
+                &uvs[2],
+                &uvs[3],
+                opts.col,
+            );
+        }
+        extern fn CImGuiDrawListAddImageQuad(List, TextureID, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, u32) void;
 
         /// Advanced: Draw Callbacks
         /// - May be used to alter render state (change sampler, blending, current shader). May be used to emit custom rendering commands (difficult to do correctly, but possible).
@@ -562,6 +876,20 @@ pub const draw = struct {
             CImGuiDrawListAddResetCallback(draw_list);
         }
         extern fn CImGuiDrawListAddResetCallback(List) void;
+
+        // Flags for ImDrawList instance. Those are set automatically by ImGui:: functions from ImGuiIO settings, and generally not manipulated directly.
+        // It is however possible to temporarily alter flags between calls to ImDrawList:: functions.
+        pub const ListFlags = packed struct(c_int) {
+            /// Enable anti-aliased lines/borders (*2 the number of triangles for 1.0f wide line or lines thin enough to be drawn using textures, otherwise *3 the number of triangles)
+            antiAliasedLines: bool = false,
+            /// Enable anti-aliased lines/borders using textures when possible. Require backend to render with bilinear filtering (NOT point/nearest filtering).
+            antiAliasedLinesUseTex: bool = false,
+            /// Enable anti-aliased edge around filled shapes (rounded rectangles, circles).
+            antiAliasedFill: bool = false,
+            /// Can emit 'VtxOffset > 0' to allow large meshes. Set when 'ImGuiBackendFlags_RendererHasVtxOffset' is enabled.
+            allowVtxOffset: bool = false,
+            _unused_5_32: u28 = 0,
+        };
     };
 
     /// Typically, 1 command = 1 GPU draw call (unless command is a callback)

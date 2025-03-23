@@ -85,7 +85,7 @@ pub fn main() !void {
     desc.BindFlags = .{ .SHADER_RESOURCE = true, .RENDER_TARGET = true };
     desc.MiscFlags = .{ .GENERATE_MIPS = true };
 
-    const imctx = imgui.init();
+    const imctx = imgui.init(allocator);
     defer imgui.deinit(imctx);
     imgui.config.SetFlags(.{ .DockingEnable = true });
 
@@ -103,7 +103,7 @@ pub fn main() !void {
         .hIconSm = null,
     };
     _ = w32.RegisterClassExA(&wndClass);
-    const wstyle = w32.WS_OVERLAPPEDWINDOW | w32.WS_VISIBLE;
+    const wstyle = w32.WS_OVERLAPPEDWINDOW | w32.WS_VISIBLE | w32.WS_MAXIMIZE;
     const hwnd = w32.CreateWindowExA(
         0,
         MAIN_WINDOW_CLASS,
@@ -195,7 +195,7 @@ pub fn main() !void {
         .mainRTV = null,
         .sc = sc.?,
         .dev = dev.?,
-        .app = .init(set_sampler, set_blender),
+        .app = .init(set_sampler, set_diff_blender),
     };
 
     defer _ = gctx.dev.Unknown.Release();
@@ -235,7 +235,6 @@ pub fn main() !void {
         gctx.dev.Device.CheckFormatSupport(desc.Format, &fmt_support),
     );
     if (fmt_support.mip_autogen) {
-        std.log.info("We support mip gen", .{});
         gctx.devctx.DeviceContext.GenerateMips(srv.?);
     } else {
         std.log.warn("We do not support mip gen", .{});
@@ -249,6 +248,7 @@ pub fn main() !void {
             .height = height,
             .sampler = sampler.?,
         };
+        gctx.app.set_full_roi();
     }
     defer if (srv) |t| {
         _ = t.Unknown.Release();
@@ -279,7 +279,7 @@ pub fn main() !void {
                 break :mainloop;
             }
         }
-        gctx.paint();
+        try gctx.paint();
     }
 }
 
@@ -315,7 +315,9 @@ pub fn wndProc(
                     @intCast(rect.right - rect.left),
                     @intCast(rect.bottom - rect.top),
                 );
-                ctx.paint();
+                if (ctx.paint()) {} else |err| {
+                    std.log.err("paint error: {any}", .{err});
+                }
                 return 0;
             }
         },
@@ -347,12 +349,12 @@ const Context = struct {
         _ = backbfr.?.Unknown.Release();
     }
 
-    pub fn paint(ctx: *Context) void {
+    pub fn paint(ctx: *Context) !void {
         imgui_dx11.newFrame();
         imgui_w32.newFrame();
         imgui.newFrame();
 
-        ctx.app.update();
+        try ctx.app.update();
 
         ctx.devctx.DeviceContext.OMSetRenderTargets(1, &.{ctx.mainRTV.?}, null);
         ctx.devctx.DeviceContext.ClearRenderTargetView(ctx.mainRTV.?, &.{ 0.45, 0.55, 0.60, 1.00 });
@@ -386,29 +388,24 @@ fn set_sampler(drawlist_: *const anyopaque, cmd_: *const anyopaque) callconv(.c)
     }
 }
 
-fn set_blender(drawlist_: *const anyopaque, cmd_: *const anyopaque) callconv(.c) void {
+fn set_diff_blender(drawlist_: *const anyopaque, cmd_: *const anyopaque) callconv(.c) void {
     _ = drawlist_;
-    const cmd: *const imgui.draw.Cmd = @ptrCast(@alignCast(cmd_));
+    _ = cmd_;
     const rstate: *imgui_dx11.RenderState = @ptrCast(@alignCast(imgui.platform.getRenderState()));
     var blendState: ?*dx.ID3D11BlendState = null;
-    if (cmd.UserCallbackData) |cbdata| {
-        const blender: *const App.BlendState =
-            @ptrCast(@alignCast(cbdata));
-        var blendDesc = std.mem.zeroes(dx.D3D11_BLEND_DESC);
-        blendDesc.renderTarget[0].BlendEnable = w32.TRUE;
-        blendDesc.renderTarget[0].SrcBlend = blender.srcBlend;
-        blendDesc.renderTarget[0].DestBlend = blender.destBlend;
-        blendDesc.renderTarget[0].BlendOp = blender.blendOp;
-        blendDesc.renderTarget[0].SrcBlendAlpha = blender.srcBlendAlpha;
-        blendDesc.renderTarget[0].DestBlendAlpha = blender.destBlendAlpha;
-        blendDesc.renderTarget[0].BlendOpAlpha = blender.blendOpAlpha;
-        blendDesc.renderTarget[0].RenderTargetWriteMask = .all;
+    var blendDesc = std.mem.zeroes(dx.D3D11_BLEND_DESC);
+    blendDesc.renderTarget[0].BlendEnable = w32.TRUE;
+    blendDesc.renderTarget[0].SrcBlend = .one;
+    blendDesc.renderTarget[0].DestBlend = .one;
+    blendDesc.renderTarget[0].BlendOp = .subtract;
+    blendDesc.renderTarget[0].SrcBlendAlpha = .one;
+    blendDesc.renderTarget[0].DestBlendAlpha = .zero;
+    blendDesc.renderTarget[0].BlendOpAlpha = .add;
+    blendDesc.renderTarget[0].RenderTargetWriteMask = .all;
 
-        loghresult(
-            "Create Blend State",
-            rstate.device.Device.CreateBlendState(&blendDesc, &blendState),
-        );
-    }
+    loghresult(
+        "Create Blend State",
+        rstate.device.Device.CreateBlendState(&blendDesc, &blendState),
+    );
     rstate.device_ctx.DeviceContext.OMSetBlendState(blendState, &.{ 0, 0, 0, 0 }, 0xffff_ffff);
 }
-
