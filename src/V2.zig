@@ -15,6 +15,11 @@ pub fn neg(v: V2) V2 {
     };
 }
 
+/// The CCW orthogonal vector to v
+pub fn orth(v: V2) V2 {
+    return .{ -y(v), x(v) };
+}
+
 /// The squared length of the vector
 pub fn lenSq(v: V2) f32 {
     return x(v) * x(v) + y(v) * y(v);
@@ -29,6 +34,7 @@ pub fn distSq(a: V2, b: V2) f32 {
     return lenSq(direction(a, b));
 }
 
+/// The unsigned distance between the points
 pub fn dist(a: V2, b: V2) f32 {
     return @import("std").math.sqrt(distSq(a, b));
 }
@@ -141,4 +147,47 @@ pub fn rotate(v: V2, cos: f32, sin: f32) V2 {
         x(v) * cos - y(v) * sin,
         x(v) * sin + y(v) * cos,
     };
+}
+
+test "rotations" {
+    const t = @import("std").testing;
+    const math = @import("std").math;
+    const eps = math.floatEps(f32);
+
+    var rads: f32 = math.degreesToRadians(30);
+    var cos: f32 = math.cos(rads);
+    var sin: f32 = math.sin(rads);
+
+    var v: [2]f32 = rotate(.{ 1, 0 }, cos, sin);
+    try t.expectApproxEqRel(cos, v[0], eps);
+    try t.expectApproxEqRel(sin, v[1], eps);
+    v = rotate(.{ 0, 1 }, cos, sin);
+    try t.expectApproxEqRel(-sin, v[0], eps);
+    try t.expectApproxEqRel(cos, v[1], eps);
+
+    rads = math.degreesToRadians(90);
+    cos = math.cos(rads);
+    sin = math.sin(rads);
+    v = rotate(.{ 1, 0 }, cos, sin);
+    try t.expectApproxEqAbs(0, v[0], eps);
+    try t.expectApproxEqRel(1, v[1], eps);
+    v = rotate(.{ 0, 1 }, cos, sin);
+    try t.expectApproxEqRel(-1, v[0], eps);
+    try t.expectApproxEqAbs(0, v[1], eps);
+    v = rotate(.{ 0.5, 0.5 }, cos, sin);
+    try t.expectApproxEqRel(-0.5, v[0], eps);
+    try t.expectApproxEqRel(0.5, v[1], eps);
+
+    rads = math.degreesToRadians(135);
+    cos = math.cos(rads);
+    sin = math.sin(rads);
+    v = rotate(.{ 1, 0 }, cos, sin);
+    try t.expectApproxEqRel(-(math.sqrt2 * 0.5), v[0], eps);
+    try t.expectApproxEqRel((math.sqrt2 * 0.5), v[1], eps);
+}
+
+/// The signed angle from a to b
+/// CCW positive
+pub fn angle(a: V2, b: V2) f32 {
+    return @import("std").math.atan2(dot(a, orth(b)), dot(a, b));
 }

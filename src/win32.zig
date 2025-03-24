@@ -244,8 +244,10 @@ pub fn main() !void {
     if (srv) |t| {
         gctx.app.image = .{
             .txid = t,
-            .width = width,
-            .height = height,
+            .dims = .{
+                @floatFromInt(width),
+                @floatFromInt(height),
+            },
             .sampler = sampler.?,
         };
         gctx.app.set_full_roi();
