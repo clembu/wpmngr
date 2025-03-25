@@ -188,6 +188,58 @@ test "rotations" {
 
 /// The signed angle from a to b
 /// CCW positive
+/// Between -pi and +pi
 pub fn angle(a: V2, b: V2) f32 {
     return @import("std").math.atan2(dot(a, orth(b)), dot(a, b));
+}
+
+/// The signed angle from (1,0) to b
+/// CCW positive
+/// Between 0 and 2pi
+pub fn angleAbs(v: V2) f32 {
+    const math = @import("std").math;
+    return math.wrap(angle(.{ 1, 0 }, v), math.pi) + math.pi;
+}
+
+/// The factor to multiply `v` by to intersect the bound defined by `dim` and
+/// `bound`, starting from `pos`
+/// Returns null if the ray and bound are parallel, or if the factor is outside
+/// the range (0,1)
+pub fn vec_bound_intersect(
+    pos: V2,
+    v: V2,
+    comptime dim: anytype,
+    comptime norm: anytype,
+    bound: f32,
+) ?f32 {
+    const dim_access = switch (dim) {
+        .x => x,
+        .y => y,
+        else => @compileError("Expected .x or .y"),
+    };
+
+    if (dim_access(v) == 0) return null;
+    const t = (bound - dim_access(pos)) / dim_access(v);
+    const normal_v = blk: {
+        var n: [2]f32 = .{ 0, 0 };
+        const idx = switch (dim) {
+            .x => 0,
+            .y => 1,
+            else => @compileError("Expected .x or .y"),
+        };
+
+        switch (norm) {
+            .pos => n[idx] = 1,
+            .neg => n[idx] = -1,
+            else => @compileError("Expected .pos or .neg"),
+        }
+        break :blk n;
+    };
+    if (1 < t) return null;
+    if (dot(v, normal_v) > 0) {
+        if (t <= 0) return null;
+    }
+    if (t < 0) return null;
+
+    return t;
 }

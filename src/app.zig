@@ -320,8 +320,9 @@ fn single_button_image(self: *@This()) !void {
             });
         }
         if (imgui.item.isActive()) {
-            const mouse_delta = imgui.mouse.getDragDelta(.{});
+            const mouse_delta = imgui.mouse.getDelta();
             const mouse_delta_img = V2.mul(mouse_delta, screen_to_img_scale);
+
             if (self.roi_op) |op| switch (op) {
                 .nw => {
                     self.scale_corner_handle(mouse_delta_img, 0);
@@ -348,59 +349,19 @@ fn single_button_image(self: *@This()) !void {
                     self.scale_edge_handle(mouse_delta_img, 3);
                 },
                 .mov => {
-                    if (self.working_roi) |_| {
-                        self.working_roi.?[0] = V2.add(self.roi[0], mouse_delta_img);
-                        self.working_roi.?[1] = V2.add(self.roi[1], mouse_delta_img);
-                        self.working_roi.?[2] = V2.add(self.roi[2], mouse_delta_img);
-                        self.working_roi.?[3] = V2.add(self.roi[3], mouse_delta_img);
-                    }
+                    self.move_op(mouse_delta_img);
                 },
                 .rot => {
                     const old_pos = V2.sub(mousepos, mouse_delta);
-                    // pivot is center
-                    const pivot_screen = V2.lerp(screen_roi[0], screen_roi[2], 0.5);
+                    const pivot = V2.lerp(screen_roi[0], screen_roi[2], 0.5);
                     // NOTE: our Y is pointing down-screen, so the angle
                     // direction has to be reversed: CCW positive in a (+X,+Y)
                     // base is CW positive in a (+X,-Y) base.
-                    const angle = -V2.angle(
-                        V2.direction(pivot_screen, old_pos),
-                        V2.direction(pivot_screen, mousepos),
+                    const angle_delta = -V2.angle(
+                        V2.direction(pivot, old_pos),
+                        V2.direction(pivot, mousepos),
                     );
-                    {
-                        if (imgui.window.begin("ROI", .{})) {
-                            imgui.separator(.{ .label = "Angle" });
-                            _ = try imgui.text("Angle: {d}", .{angle});
-                        }
-                        imgui.window.end();
-                    }
-                    if (self.working_roi) |_| {
-                        const cos = std.math.cos(angle);
-                        const sin = std.math.sin(angle);
-                        {
-                            if (imgui.window.begin("ROI", .{})) {
-                                _ = try imgui.text("Cos: {d}", .{cos});
-                                _ = try imgui.text("Sin: {d}", .{sin});
-                            }
-                            imgui.window.end();
-                        }
-                        const pivot_img = V2.lerp(self.roi[0], self.roi[2], 0.5);
-                        self.working_roi.?[0] = V2.add(
-                            pivot_img,
-                            V2.rotate(V2.direction(pivot_img, self.roi[0]), cos, sin),
-                        );
-                        self.working_roi.?[1] = V2.add(
-                            pivot_img,
-                            V2.rotate(V2.direction(pivot_img, self.roi[1]), cos, sin),
-                        );
-                        self.working_roi.?[2] = V2.add(
-                            pivot_img,
-                            V2.rotate(V2.direction(pivot_img, self.roi[2]), cos, sin),
-                        );
-                        self.working_roi.?[3] = V2.add(
-                            pivot_img,
-                            V2.rotate(V2.direction(pivot_img, self.roi[3]), cos, sin),
-                        );
-                    }
+                    self.rot_op(angle_delta, img.dims);
                 },
             };
             if (imgui.mouse.isClicked(.right, .{})) {
@@ -410,65 +371,319 @@ fn single_button_image(self: *@This()) !void {
     }
 }
 
-fn scale_corner_handle(self: *@This(), mousedelta: [2]f32, corner_idx: usize) void {
-    const poc = self.roi[(corner_idx + 2) & 3];
-    const propag_idx_1 = (corner_idx + 1) & 3;
-    const propag_idx_2 = (corner_idx + 3) & 3;
-    const corner_delta = V2.project(
-        mousedelta,
-        V2.direction(self.roi[corner_idx], poc),
-    );
-    const propag_delta_1 = V2.project(
-        corner_delta,
-        V2.direction(self.roi[propag_idx_1], poc),
-    );
-    const propag_delta_2 = V2.project(
-        corner_delta,
-        V2.direction(self.roi[propag_idx_2], poc),
-    );
-    if (self.working_roi) |_| {
-        self.working_roi.?[corner_idx] = V2.add(self.roi[corner_idx], corner_delta);
-        self.working_roi.?[propag_idx_1] = V2.add(self.roi[propag_idx_1], propag_delta_1);
-        self.working_roi.?[propag_idx_2] = V2.add(self.roi[propag_idx_2], propag_delta_2);
+fn bound_check_point_move(self: *@This(), point: [2]f32, move: [2]f32) f32 {
+    var t_delta: f32 = 1;
+    if (V2.vec_bound_intersect(
+        point,
+        move,
+        .x,
+        .pos,
+        0,
+    )) |x0|
+        if (x0 < t_delta) {
+            t_delta = x0;
+        };
+    if (V2.vec_bound_intersect(
+        point,
+        move,
+        .y,
+        .pos,
+        0,
+    )) |y0|
+        if (y0 < t_delta) {
+            t_delta = y0;
+        };
+    if (V2.vec_bound_intersect(
+        point,
+        move,
+        .x,
+        .neg,
+        self.image.?.dims[0],
+    )) |x1|
+        if (x1 < t_delta) {
+            t_delta = x1;
+        };
+    if (V2.vec_bound_intersect(
+        point,
+        move,
+        .y,
+        .neg,
+        self.image.?.dims[1],
+    )) |y1|
+        if (y1 < t_delta) {
+            t_delta = y1;
+        };
+    return t_delta;
+}
+
+fn scale_corner_handle(self: *@This(), init_delta: [2]f32, corner_idx: usize) void {
+    // These renamings make it easier to reason about: we treat everything as it
+    // if was using the indices for the North West corner (0).
+    const p0 = corner_idx & 3;
+    const p1 = (corner_idx + 1) & 3;
+    const p2 = (corner_idx + 2) & 3;
+    const p3 = (corner_idx + 3) & 3;
+    if (self.working_roi) |roi| {
+        const poc = roi[p2];
+        var corner_delta = V2.project(
+            init_delta,
+            V2.direction(roi[p0], poc),
+        );
+        var propag_delta_1 = V2.project(
+            corner_delta,
+            V2.direction(roi[p1], poc),
+        );
+        var propag_delta_2 = V2.project(
+            corner_delta,
+            V2.direction(roi[p3], poc),
+        );
+        const t = @min(
+            self.bound_check_point_move(roi[p0], corner_delta),
+            self.bound_check_point_move(roi[p1], propag_delta_1),
+            self.bound_check_point_move(roi[p3], propag_delta_2),
+        );
+        {
+            corner_delta = V2.scale(corner_delta, t);
+            propag_delta_1 = V2.scale(propag_delta_1, t);
+            propag_delta_2 = V2.scale(propag_delta_2, t);
+        }
+        self.working_roi.?[p0] = V2.add(roi[p0], corner_delta);
+        self.working_roi.?[p1] = V2.add(roi[p1], propag_delta_1);
+        self.working_roi.?[p3] = V2.add(roi[p3], propag_delta_2);
     }
 }
 
 /// edge is identified by the index of its first vertex. And edge will always be
 /// (i, i+1), where 'i' wraps within [0,3]
-fn scale_edge_handle(self: *@This(), mousedelta: [2]f32, edge: usize) void {
+fn scale_edge_handle(self: *@This(), init_delta: [2]f32, edge: usize) void {
     // These renamings make it easier to reason about: we treat everything as it
     // if was using the indices for the North edge (0,1).
-    const edge_rel_idx_0 = (edge & 3);
-    const edge_rel_idx_1 = ((edge + 1) & 3);
-    const edge_rel_idx_2 = ((edge + 2) & 3);
-    const edge_rel_idx_3 = ((edge + 3) & 3);
-    const poc = V2.lerp(self.roi[edge_rel_idx_2], self.roi[edge_rel_idx_3], 0.5);
-    const normal_delta = V2.project(
-        mousedelta,
-        V2.direction(self.roi[edge_rel_idx_0], self.roi[edge_rel_idx_3]),
-    );
-    const p0_delta = V2.unproject(
-        normal_delta,
-        V2.direction(self.roi[edge_rel_idx_0], poc),
-    );
-    const p1_delta = V2.unproject(
-        normal_delta,
-        V2.direction(self.roi[edge_rel_idx_1], poc),
-    );
-    const p3_delta = V2.project(
-        p0_delta,
-        V2.direction(self.roi[edge_rel_idx_3], poc),
-    );
-    const p2_delta = V2.project(
-        p1_delta,
-        V2.direction(self.roi[edge_rel_idx_2], poc),
-    );
-    if (self.working_roi) |_| {
-        self.working_roi.?[edge_rel_idx_0] = V2.add(self.roi[edge_rel_idx_0], p0_delta);
-        self.working_roi.?[edge_rel_idx_1] = V2.add(self.roi[edge_rel_idx_1], p1_delta);
-        self.working_roi.?[edge_rel_idx_2] = V2.add(self.roi[edge_rel_idx_2], p2_delta);
-        self.working_roi.?[edge_rel_idx_3] = V2.add(self.roi[edge_rel_idx_3], p3_delta);
+    const p0 = (edge & 3);
+    const p1 = ((edge + 1) & 3);
+    const p2 = ((edge + 2) & 3);
+    const p3 = ((edge + 3) & 3);
+    if (self.working_roi) |roi| {
+        const poc = V2.lerp(roi[p2], roi[p3], 0.5);
+        const normal_delta = V2.project(
+            init_delta,
+            V2.direction(roi[p0], roi[p3]),
+        );
+        var p0_delta = V2.unproject(
+            normal_delta,
+            V2.direction(roi[p0], poc),
+        );
+        var p1_delta = V2.unproject(
+            normal_delta,
+            V2.direction(roi[p1], poc),
+        );
+        var p3_delta = V2.project(
+            p0_delta,
+            V2.direction(roi[p3], poc),
+        );
+        var p2_delta = V2.project(
+            p1_delta,
+            V2.direction(roi[p2], poc),
+        );
+        const t = @min(
+            self.bound_check_point_move(roi[p0], p0_delta),
+            self.bound_check_point_move(roi[p1], p1_delta),
+            self.bound_check_point_move(roi[p2], p2_delta),
+            self.bound_check_point_move(roi[p3], p3_delta),
+        );
+        {
+            p0_delta = V2.scale(p0_delta, t);
+            p1_delta = V2.scale(p1_delta, t);
+            p2_delta = V2.scale(p2_delta, t);
+            p3_delta = V2.scale(p3_delta, t);
+        }
+        self.working_roi.?[p0] = V2.add(roi[p0], p0_delta);
+        self.working_roi.?[p1] = V2.add(roi[p1], p1_delta);
+        self.working_roi.?[p2] = V2.add(roi[p2], p2_delta);
+        self.working_roi.?[p3] = V2.add(roi[p3], p3_delta);
     }
+}
+
+fn move_op(self: *@This(), init_delta: [2]f32) void {
+    if (self.working_roi) |roi| {
+        var working_bb: [2][2]f32 = .{ .{
+            @min(roi[0][0], roi[1][0], roi[2][0], roi[3][0]),
+            @min(roi[0][1], roi[1][1], roi[2][1], roi[3][1]),
+        }, .{
+            @max(roi[0][0], roi[1][0], roi[2][0], roi[3][0]),
+            @max(roi[0][1], roi[1][1], roi[2][1], roi[3][1]),
+        } };
+
+        var iter_delta = init_delta;
+        var final_delta: [2]f32 = .{ 0, 0 };
+        for (0..2) |_| {
+            var t_delta: f32 = 1;
+            var hit: ?enum { x, y } = null;
+
+            if (V2.vec_bound_intersect(working_bb[0], iter_delta, .x, .pos, 0)) |x0|
+                if (x0 < t_delta) {
+                    hit = .x;
+                    t_delta = x0;
+                };
+            if (V2.vec_bound_intersect(working_bb[0], iter_delta, .y, .pos, 0)) |y0|
+                if (y0 < t_delta) {
+                    hit = .y;
+                    t_delta = y0;
+                };
+            if (V2.vec_bound_intersect(working_bb[1], iter_delta, .x, .neg, self.image.?.dims[0])) |x1|
+                if (x1 < t_delta) {
+                    hit = .x;
+                    t_delta = x1;
+                };
+            if (V2.vec_bound_intersect(
+                working_bb[1],
+                iter_delta,
+                .y,
+                .neg,
+                self.image.?.dims[1],
+            )) |y1|
+                if (y1 < t_delta) {
+                    hit = .y;
+                    t_delta = y1;
+                };
+
+            const delta_hit = V2.scale(iter_delta, t_delta);
+            final_delta = V2.add(final_delta, delta_hit);
+            working_bb[0] = V2.add(working_bb[0], delta_hit);
+            working_bb[1] = V2.add(working_bb[1], delta_hit);
+
+            if (t_delta < 1) {
+                switch (hit.?) {
+                    .x => {
+                        // glide along y
+                        iter_delta = V2.mul(iter_delta, .{ 0, 1 - t_delta });
+                    },
+                    .y => {
+                        // glide along x
+                        iter_delta = V2.mul(iter_delta, .{ 1 - t_delta, 0 });
+                    },
+                }
+            } else {
+                break;
+            }
+        }
+        self.working_roi.?[0] = V2.add(roi[0], final_delta);
+        self.working_roi.?[1] = V2.add(roi[1], final_delta);
+        self.working_roi.?[2] = V2.add(roi[2], final_delta);
+        self.working_roi.?[3] = V2.add(roi[3], final_delta);
+    }
+}
+
+fn rot_op(self: *@This(), init_angle: f32, bounds: [2]f32) void {
+    if (std.math.approxEqAbs(f32, init_angle, 0, std.math.floatEps(f32))) {
+        // no angle, no rotation
+        return;
+    }
+    if (self.working_roi) |roi| {
+        const pivot = V2.lerp(self.roi[0], self.roi[2], 0.5);
+        // Positive: CW
+        // Negative: CCW
+        const angle_p0 = -V2.angleAbs(V2.direction(pivot, roi[0]));
+        const angle_p1 = -V2.angleAbs(V2.direction(pivot, roi[1]));
+        const angle_p2 = -V2.angleAbs(V2.direction(pivot, roi[2]));
+        const angle_p3 = -V2.angleAbs(V2.direction(pivot, roi[3]));
+        const radiusSq = V2.distSq(pivot, roi[2]);
+
+        const intersect_left_sq = radiusSq - (pivot[0] * pivot[0]);
+        const intersect_right_sq = radiusSq - ((bounds[0] - pivot[0]) * (bounds[0] - pivot[0]));
+        const intersect_top_sq = radiusSq - (pivot[1] * pivot[1]);
+        const intersect_bottom_sq = radiusSq - ((bounds[1] - pivot[1]) * (bounds[1] - pivot[1]));
+
+        // We want the minimum absolute
+        const angle_delta_sign = std.math.sign(init_angle);
+        var final_angle = init_angle * angle_delta_sign;
+        if (intersect_left_sq > 0) {
+            const rel_y = std.math.sqrt(intersect_left_sq) * angle_delta_sign;
+            const hit = .{ 0, pivot[1] + rel_y };
+            const hit_angle_aligned = -V2.angleAbs(V2.direction(pivot, hit));
+            const p0_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p0) * angle_delta_sign);
+            const p1_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p1) * angle_delta_sign);
+            const p2_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p2) * angle_delta_sign);
+            const p3_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p3) * angle_delta_sign);
+            final_angle = @min(
+                final_angle,
+                p0_hit_rel_angle,
+                p1_hit_rel_angle,
+                p2_hit_rel_angle,
+                p3_hit_rel_angle,
+            );
+        }
+        if (intersect_right_sq > 0) {
+            const rel_y = std.math.sqrt(intersect_right_sq) * -angle_delta_sign;
+            const hit = .{ bounds[0], pivot[1] + rel_y };
+            const hit_angle_aligned = -V2.angleAbs(V2.direction(pivot, hit));
+            const p0_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p0) * angle_delta_sign);
+            const p1_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p1) * angle_delta_sign);
+            const p2_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p2) * angle_delta_sign);
+            const p3_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p3) * angle_delta_sign);
+            final_angle = @min(
+                final_angle,
+                p0_hit_rel_angle,
+                p1_hit_rel_angle,
+                p2_hit_rel_angle,
+                p3_hit_rel_angle,
+            );
+        }
+        if (intersect_top_sq > 0) {
+            const rel_x = std.math.sqrt(intersect_right_sq) * -angle_delta_sign;
+            const hit = .{ pivot[0] + rel_x, 0 };
+            const hit_angle_aligned = -V2.angleAbs(V2.direction(pivot, hit));
+            const p0_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p0) * angle_delta_sign);
+            const p1_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p1) * angle_delta_sign);
+            const p2_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p2) * angle_delta_sign);
+            const p3_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p3) * angle_delta_sign);
+            final_angle = @min(
+                final_angle,
+                p0_hit_rel_angle,
+                p1_hit_rel_angle,
+                p2_hit_rel_angle,
+                p3_hit_rel_angle,
+            );
+        }
+        if (intersect_bottom_sq > 0) {
+            const rel_x = std.math.sqrt(intersect_right_sq) * angle_delta_sign;
+            const hit = .{ pivot[0] + rel_x, bounds[1] };
+            const hit_angle_aligned = -V2.angleAbs(V2.direction(pivot, hit));
+            const p0_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p0) * angle_delta_sign);
+            const p1_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p1) * angle_delta_sign);
+            const p2_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p2) * angle_delta_sign);
+            const p3_hit_rel_angle = positive(approxDiff(hit_angle_aligned, angle_p3) * angle_delta_sign);
+            final_angle = @min(
+                final_angle,
+                p0_hit_rel_angle,
+                p1_hit_rel_angle,
+                p2_hit_rel_angle,
+                p3_hit_rel_angle,
+            );
+        }
+
+        // We restore the sign.
+        final_angle *= angle_delta_sign;
+
+        const cos = std.math.cos(final_angle);
+        const sin = std.math.sin(final_angle);
+        self.working_roi.?[0] = V2.add(pivot, V2.rotate(V2.direction(pivot, roi[0]), cos, sin));
+        self.working_roi.?[1] = V2.add(pivot, V2.rotate(V2.direction(pivot, roi[1]), cos, sin));
+        self.working_roi.?[2] = V2.add(pivot, V2.rotate(V2.direction(pivot, roi[2]), cos, sin));
+        self.working_roi.?[3] = V2.add(pivot, V2.rotate(V2.direction(pivot, roi[3]), cos, sin));
+    }
+}
+
+/// Gets you `a - b`, but if the result is close enough to zero, we snap it.
+fn approxDiff(a: f32, b: f32) f32 {
+    var raw_diff = a - b;
+    if (std.math.approxEqAbs(f32, raw_diff, 0, 1e-5))
+        raw_diff = 0;
+    return raw_diff;
+}
+
+/// If given a negative number, gives you +inf back.
+fn positive(f: f32) f32 {
+    return if (f < 0) std.math.inf(f32) else f;
 }
 
 const Region = enum {
