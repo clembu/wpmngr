@@ -155,26 +155,31 @@ pub fn update(self: *@This()) !void {
     if (imgui.window.begin("Preview", .{})) {
         if (self.image) |img| {
             const avail = imgui.cursor.getContentRegionAvail();
-            const imgscrsize = fit_aspect(
+            const img_screen_size = fit_aspect(
                 .{ @floatFromInt(self.aspect[0]), @floatFromInt(self.aspect[1]) },
                 avail,
             );
 
-            const imgpos = imgui.cursor.getScreenPos();
+            const imgpos = blk: {
+                const cur = imgui.cursor.getScreenPos();
+                const avail_center = V2.scale(avail, 0.5);
+                const img_screen_center = V2.scale(img_screen_size, 0.5);
+                break :blk V2.add(cur, V2.sub(avail_center, img_screen_center));
+            };
             imgui.window.getDrawList().addCallback(self.set_sampler, img.sampler);
             imgui.window.getDrawList().addImageQuad(img.txid, .{
                 .{ imgpos[0], imgpos[1] },
                 .{
-                    imgpos[0] + imgscrsize[0],
+                    imgpos[0] + img_screen_size[0],
                     imgpos[1],
                 },
                 .{
-                    imgpos[0] + imgscrsize[0],
-                    imgpos[1] + imgscrsize[1],
+                    imgpos[0] + img_screen_size[0],
+                    imgpos[1] + img_screen_size[1],
                 },
                 .{
                     imgpos[0],
-                    imgpos[1] + imgscrsize[1],
+                    imgpos[1] + img_screen_size[1],
                 },
             }, if (self.working_roi) |roi| .{
                 V2.div(roi[0], img.dims),
@@ -212,8 +217,14 @@ fn single_button_image(self: *@This()) !void {
     if (self.image) |img| {
         const avail = imgui.cursor.getContentRegionAvail();
         const img_screen_size = fit_aspect(img.dims, avail);
-        const imgpos = imgui.cursor.getScreenPos();
+        const imgpos = blk: {
+            const cur = imgui.cursor.getScreenPos();
+            const avail_center = V2.scale(avail, 0.5);
+            const img_screen_center = V2.scale(img_screen_size, 0.5);
+            break :blk V2.add(cur, V2.sub(avail_center, img_screen_center));
+        };
 
+        imgui.cursor.setScreenPos(imgpos);
         imgui.window.getDrawList().addCallback(self.set_sampler, img.sampler);
         imgui.image(img.txid, .{ .size = img_screen_size });
         imgui.window.getDrawList().addResetCallback();
