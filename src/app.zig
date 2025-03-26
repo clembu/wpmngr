@@ -323,65 +323,73 @@ fn single_button_image(self: *@This()) !void {
             };
 
             self.roi_op = handle_table.get(ew_region).get(ns_region);
-            imgui.mouse.setPointer(switch (self.roi_op.?) {
-                .rot => .hand,
-                .nw, .se => .resizeNWSE,
-                .ne, .sw => .resizeNESW,
-                .e, .w => .resizeEW,
-                .n, .s => .resizeNS,
-                .mov => .resizeAll,
-            });
+            update_mouse_roi_pointer(self.roi_op.?);
         }
         if (imgui.item.isActive()) {
             const mouse_delta = imgui.mouse.getDelta();
             const mouse_delta_img = V2.mul(mouse_delta, screen_to_img_scale);
 
-            if (self.roi_op) |op| switch (op) {
-                .nw => {
-                    self.scale_corner_handle(mouse_delta_img, 0);
-                },
-                .ne => {
-                    self.scale_corner_handle(mouse_delta_img, 1);
-                },
-                .se => {
-                    self.scale_corner_handle(mouse_delta_img, 2);
-                },
-                .sw => {
-                    self.scale_corner_handle(mouse_delta_img, 3);
-                },
-                .n => {
-                    self.scale_edge_handle(mouse_delta_img, 0);
-                },
-                .e => {
-                    self.scale_edge_handle(mouse_delta_img, 1);
-                },
-                .s => {
-                    self.scale_edge_handle(mouse_delta_img, 2);
-                },
-                .w => {
-                    self.scale_edge_handle(mouse_delta_img, 3);
-                },
-                .mov => {
-                    self.move_op(mouse_delta_img);
-                },
-                .rot => {
-                    const old_pos = V2.sub(mousepos, mouse_delta);
-                    const pivot = V2.lerp(screen_roi[0], screen_roi[2], 0.5);
-                    // NOTE: our Y is pointing down-screen, so the angle
-                    // direction has to be reversed: CCW positive in a (+X,+Y)
-                    // base is CW positive in a (+X,-Y) base.
-                    const angle_delta = -V2.angle(
-                        V2.direction(pivot, old_pos),
-                        V2.direction(pivot, mousepos),
-                    );
-                    self.rot_op(angle_delta, img.dims);
-                },
-            };
+            if (self.roi_op) |op| {
+                update_mouse_roi_pointer(op);
+                switch (op) {
+                    .nw => {
+                        self.scale_corner_handle(mouse_delta_img, 0);
+                    },
+                    .ne => {
+                        self.scale_corner_handle(mouse_delta_img, 1);
+                    },
+                    .se => {
+                        self.scale_corner_handle(mouse_delta_img, 2);
+                    },
+                    .sw => {
+                        self.scale_corner_handle(mouse_delta_img, 3);
+                    },
+                    .n => {
+                        self.scale_edge_handle(mouse_delta_img, 0);
+                    },
+                    .e => {
+                        self.scale_edge_handle(mouse_delta_img, 1);
+                    },
+                    .s => {
+                        self.scale_edge_handle(mouse_delta_img, 2);
+                    },
+                    .w => {
+                        self.scale_edge_handle(mouse_delta_img, 3);
+                    },
+                    .mov => {
+                        self.move_op(mouse_delta_img);
+                    },
+                    .rot => {
+                        const old_pos = V2.sub(mousepos, mouse_delta);
+                        const pivot = V2.lerp(screen_roi[0], screen_roi[2], 0.5);
+                        // NOTE: our Y is pointing down-screen, so the angle
+                        // direction has to be reversed: CCW positive in a (+X,+Y)
+                        // base is CW positive in a (+X,-Y) base.
+                        const angle_delta = -V2.angle(
+                            V2.direction(pivot, old_pos),
+                            V2.direction(pivot, mousepos),
+                        );
+                        self.rot_op(angle_delta, img.dims);
+                    },
+                }
+            }
             if (imgui.mouse.isClicked(.right, .{})) {
                 self.working_roi = null;
             }
         }
     }
+}
+
+fn update_mouse_roi_pointer(op: Handle) void {
+    // TODO: nice to have: pointer should reflect rotation
+    imgui.mouse.setPointer(switch (op) {
+        .rot => .hand,
+        .nw, .se => .resizeNWSE,
+        .ne, .sw => .resizeNESW,
+        .e, .w => .resizeEW,
+        .n, .s => .resizeNS,
+        .mov => .resizeAll,
+    });
 }
 
 fn bound_check_point_move(self: *@This(), point: [2]f32, move: [2]f32) f32 {
