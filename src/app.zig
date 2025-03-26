@@ -98,17 +98,24 @@ pub fn update(self: *@This()) !void {
             .{@as(f32, @floatFromInt(self.aspect[0])) / @as(f32, @floatFromInt(self.aspect[1]))},
         );
         imgui.separator(.{});
+        if (self.image) |img| {
+            imgui.separator(.{ .label = "Image" });
+            try imgui.text("Width: {d}", .{img.dims[0]});
+            try imgui.text("Height: {d}", .{img.dims[1]});
+        }
+        imgui.separator(.{});
         imgui.separator(.{ .label = "Actual ROI" });
         const roi_width = V2.dist(self.roi[0], self.roi[1]);
         const roi_height = V2.dist(self.roi[0], self.roi[3]);
         try imgui.text("Width: {d}", .{roi_width});
         try imgui.text("Height: {d}", .{roi_height});
         try imgui.text("Ratio: {d}", .{roi_width / roi_height});
-        const roi_width_int = std.math.round(roi_width);
-        const roi_height_int = std.math.round(roi_height);
-        try imgui.text("Width (Rounded): {d}", .{roi_width_int});
-        try imgui.text("Height (Rounded): {d}", .{roi_height_int});
-        try imgui.text("Ratio (Rounded): {d}", .{roi_width_int / roi_height_int});
+        imgui.separator(.{ .label = "ROI rounded up" });
+        const roi_width_int = std.math.ceil(roi_width);
+        const roi_height_int = std.math.ceil(roi_height);
+        try imgui.text("Width: {d}", .{roi_width_int});
+        try imgui.text("Height: {d}", .{roi_height_int});
+        try imgui.text("Ratio: {d}", .{roi_width_int / roi_height_int});
         imgui.separator(.{ .label = "Point 1" });
         try imgui.text("X: {d}", .{self.roi[0][0]});
         try imgui.text("y: {d}", .{self.roi[0][1]});
@@ -130,11 +137,11 @@ pub fn update(self: *@This()) !void {
             try imgui.text("Width: {d}", .{work_roi_width});
             try imgui.text("Height: {d}", .{work_roi_height});
             try imgui.text("Ratio: {d}", .{work_roi_width / work_roi_height});
-            const work_roi_width_int = std.math.round(work_roi_width);
-            const work_roi_height_int = std.math.round(work_roi_height);
-            try imgui.text("Width (Rounded): {d}", .{work_roi_width_int});
-            try imgui.text("Height (Rounded): {d}", .{work_roi_height_int});
-            try imgui.text("Ratio (Rounded): {d}", .{work_roi_width_int / work_roi_height_int});
+            const work_roi_width_int = std.math.ceil(work_roi_width);
+            const work_roi_height_int = std.math.ceil(work_roi_height);
+            try imgui.text("Width: {d}", .{work_roi_width_int});
+            try imgui.text("Height: {d}", .{work_roi_height_int});
+            try imgui.text("Ratio: {d}", .{work_roi_width_int / work_roi_height_int});
             imgui.separator(.{ .label = "Point 1" });
             try imgui.text("X: {d}", .{roi[0][0]});
             try imgui.text("y: {d}", .{roi[0][1]});
