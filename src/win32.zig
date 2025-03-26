@@ -250,7 +250,7 @@ pub fn main() !void {
             },
             .sampler = sampler.?,
         };
-        gctx.app.set_full_roi();
+        gctx.app.reset_roi();
     }
     defer if (srv) |t| {
         _ = t.Unknown.Release();

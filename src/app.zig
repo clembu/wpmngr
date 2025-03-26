@@ -44,17 +44,21 @@ fn fit_aspect(aspect: [2]f32, max_size: [2]f32) [2]f32 {
     }
 }
 
-pub fn set_full_roi(self: *@This()) void {
+pub fn reset_roi(self: *@This()) void {
     if (self.image) |img| {
         const roi_size = fit_aspect(
             .{ @floatFromInt(self.aspect[0]), @floatFromInt(self.aspect[1]) },
             img.dims,
         );
+        const img_center = V2.scale(img.dims, 0.5);
+        const roi_center = V2.scale(roi_size, 0.5);
+        const top_left = V2.sub(img_center,roi_center);
+        const bottom_right = V2.add(img_center,roi_center);
         self.roi = .{
-            .{ 0, 0 },
-            .{ roi_size[0], 0 },
-            .{ roi_size[0], roi_size[1] },
-            .{ 0, roi_size[1] },
+            top_left,
+            .{ bottom_right[0], top_left[1] },
+            bottom_right,
+            .{ top_left[0], bottom_right[1] },
         };
     }
 }
@@ -84,10 +88,10 @@ pub fn update(self: *@This()) !void {
         }
         imgui.separator(.{ .label = "Aspect Ratio" });
         if (imgui.dragInt("Width", &self.aspect[0], .{})) {
-            self.set_full_roi();
+            self.reset_roi();
         }
         if (imgui.dragInt("Height", &self.aspect[1], .{})) {
-            self.set_full_roi();
+            self.reset_roi();
         }
         try imgui.text(
             "Ratio: {d}",
