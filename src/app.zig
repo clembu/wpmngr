@@ -4,6 +4,7 @@ const V2 = @import("V2.zig");
 
 image: ?Image,
 aspect: [2]u32,
+min_size: [2]f32,
 roi: [4][2]f32,
 working_roi: ?[4][2]f32,
 set_sampler: imgui.draw.Callback,
@@ -17,6 +18,7 @@ pub fn init(
     return .{
         .image = null,
         .aspect = .{ 9, 16 },
+        .min_size = .{ 1080, 1920 },
         .roi = .{
             .{ 0, 0 },
             .{ 1, 0 },
@@ -429,27 +431,40 @@ fn scale_corner_handle(self: *@This(), init_delta: [2]f32, corner_idx: usize) vo
             init_delta,
             V2.direction(roi[p0], poc),
         );
-        var propag_delta_1 = V2.project(
+        var propag_delta_p1 = V2.project(
             corner_delta,
             V2.direction(roi[p1], poc),
         );
-        var propag_delta_2 = V2.project(
+        var propag_delta_p3 = V2.project(
             corner_delta,
             V2.direction(roi[p3], poc),
         );
         const t = @min(
             self.bound_check_point_move(roi[p0], corner_delta),
-            self.bound_check_point_move(roi[p1], propag_delta_1),
-            self.bound_check_point_move(roi[p3], propag_delta_2),
+            self.bound_check_point_move(roi[p1], propag_delta_p1),
+            self.bound_check_point_move(roi[p3], propag_delta_p3),
         );
         {
             corner_delta = V2.scale(corner_delta, t);
-            propag_delta_1 = V2.scale(propag_delta_1, t);
-            propag_delta_2 = V2.scale(propag_delta_2, t);
+            propag_delta_p1 = V2.scale(propag_delta_p1, t);
+            propag_delta_p3 = V2.scale(propag_delta_p3, t);
         }
-        self.working_roi.?[p0] = V2.add(roi[p0], corner_delta);
-        self.working_roi.?[p1] = V2.add(roi[p1], propag_delta_1);
-        self.working_roi.?[p3] = V2.add(roi[p3], propag_delta_2);
+        const new_p3 = V2.add(roi[p3], propag_delta_p3);
+        const min_size01 = self.min_size[corner_idx & 1];
+        const min_size03 = self.min_size[(corner_idx + 3) & 1];
+        // The scale is uniform on all sides so we only need to check one
+        if (V2.distSq(roi[p2], new_p3) < (min_size01 * min_size01)) {
+            const p2_to_p3 = V2.scale(V2.unit(V2.direction(roi[p2], roi[p3])), min_size01);
+            const p2_to_p1 = V2.scale(V2.unit(V2.direction(roi[p2], roi[p1])), min_size03);
+
+            self.working_roi.?[p0] = V2.add(roi[p2], V2.add(p2_to_p1, p2_to_p3));
+            self.working_roi.?[p1] = V2.add(roi[p2], p2_to_p1);
+            self.working_roi.?[p3] = V2.add(roi[p2], p2_to_p3);
+        } else {
+            self.working_roi.?[p0] = V2.add(roi[p0], corner_delta);
+            self.working_roi.?[p1] = V2.add(roi[p1], propag_delta_p1);
+            self.working_roi.?[p3] = new_p3;
+        }
     }
 }
 
@@ -490,16 +505,33 @@ fn scale_edge_handle(self: *@This(), init_delta: [2]f32, edge: usize) void {
             self.bound_check_point_move(roi[p2], p2_delta),
             self.bound_check_point_move(roi[p3], p3_delta),
         );
-        {
-            p0_delta = V2.scale(p0_delta, t);
-            p1_delta = V2.scale(p1_delta, t);
-            p2_delta = V2.scale(p2_delta, t);
-            p3_delta = V2.scale(p3_delta, t);
+
+        p0_delta = V2.scale(p0_delta, t);
+        p1_delta = V2.scale(p1_delta, t);
+        p2_delta = V2.scale(p2_delta, t);
+        p3_delta = V2.scale(p3_delta, t);
+
+        const new_p0 = V2.add(roi[p0], p0_delta);
+        var new_p3 = V2.add(roi[p3], p3_delta);
+        const min_size01 = self.min_size[p0 & 1];
+        const min_size03 = self.min_size[p3 & 1];
+        const new_size03 = V2.distSq(new_p0, new_p3);
+        if (new_size03 < (min_size03 * min_size03)) {
+            const poc_to_p3 = V2.scale(V2.unit(V2.direction(poc, roi[p3])), min_size01 * 0.5);
+            const p3_to_p0 = V2.scale(V2.unit(V2.direction(roi[p3], roi[p0])), min_size03);
+
+            new_p3 = V2.add(poc, poc_to_p3);
+            const new_p2 = V2.sub(poc, poc_to_p3);
+            self.working_roi.?[p0] = V2.add(new_p3, p3_to_p0);
+            self.working_roi.?[p1] = V2.add(new_p2, p3_to_p0);
+            self.working_roi.?[p2] = new_p2;
+            self.working_roi.?[p3] = new_p3;
+        } else {
+            self.working_roi.?[p0] = new_p0;
+            self.working_roi.?[p1] = V2.add(roi[p1], p1_delta);
+            self.working_roi.?[p2] = V2.add(roi[p2], p2_delta);
+            self.working_roi.?[p3] = new_p3;
         }
-        self.working_roi.?[p0] = V2.add(roi[p0], p0_delta);
-        self.working_roi.?[p1] = V2.add(roi[p1], p1_delta);
-        self.working_roi.?[p2] = V2.add(roi[p2], p2_delta);
-        self.working_roi.?[p3] = V2.add(roi[p3], p3_delta);
     }
 }
 
