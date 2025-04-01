@@ -20,7 +20,7 @@ My goal with this project is to have a tool giving its users the ability to:
 - [ ] Linux build
 
 #### Features
-- [-] Image region selection view
+- [x] Image region selection view (**In progress**)
 - [ ] Static Collections
 - [ ] Slideshow
 - [ ] Custom data types and relationships
