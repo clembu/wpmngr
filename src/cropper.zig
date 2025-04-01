@@ -265,7 +265,7 @@ pub fn update(self: *@This()) !void {
                                         break :blk vec.quad.p0(roi);
                                     }
                                 }
-                                break:blk vec.rect.p0(self.zooms[zidx].area);
+                                break :blk vec.rect.p0(self.zooms[zidx].area);
                             };
                             const screen_roi = @mulAdd(
                                 vec.Quad,
@@ -291,12 +291,13 @@ pub fn update(self: *@This()) !void {
                         imgui.window.getDrawList().setFlags(drawflags);
                         imgui.window.getDrawList().addResetCallback();
 
-                        // TODO: restrict to main RoI?
-                        self.roi_manipulator(
-                            vec.rect.fromQuad(screen_quad),
-                            self.zooms[zidx].area,
-                            false,
-                        );
+                        if (self.edit_mode == null) {
+                            self.roi_manipulator(
+                                vec.rect.fromQuad(screen_quad),
+                                self.zooms[zidx].area,
+                                false,
+                            );
+                        }
                     }
                 }
             }
