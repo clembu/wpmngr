@@ -23,12 +23,25 @@ extern "C" {
         return ImGui::GetDrawData();
     }
 
-    bool CImGuiBegin(const char* name, bool* p_open = NULL, ImGuiWindowFlags flags = 0) {
+    bool CImGuiBegin(const char* name, bool* p_open, ImGuiWindowFlags flags) {
         return ImGui::Begin(name, p_open, flags);
     }
 
     void CImGuiEnd() {
         ImGui::End();
+    }
+
+    bool CImGuiBeginChild(
+        const char* str_id,
+        const float size[2],
+        ImGuiChildFlags child_flags,
+        ImGuiWindowFlags window_flags 
+   ) {
+        return ImGui::BeginChild(str_id, {size[0], size[1]}, child_flags, window_flags);
+    }
+
+    void CImGuiEndChild() {
+        ImGui::EndChild();
     }
 
     // Layout
@@ -61,15 +74,15 @@ extern "C" {
     // Docking
 
     ImGuiID CImGuiDockSpaceOverViewport(
-        ImGuiID dockspace_id = 0,
-        const ImGuiViewport* viewport = NULL,
-        ImGuiDockNodeFlags flags = 0,
-        const ImGuiWindowClass* window_class = NULL
+        ImGuiID dockspace_id,
+        const ImGuiViewport* viewport,
+        ImGuiDockNodeFlags flags,
+        const ImGuiWindowClass* window_class
     ) {
         return ImGui::DockSpaceOverViewport(dockspace_id, viewport, flags, window_class);
     }
 
-    void CImGuiSetNextWindowDockID(ImGuiID dock_id, ImGuiCond cond = 0) {
+    void CImGuiSetNextWindowDockID(ImGuiID dock_id, ImGuiCond cond) {
         ImGui::SetNextWindowDockID(dock_id, cond);
     }
 
@@ -169,6 +182,10 @@ extern "C" {
         return ImGui::InvisibleButton(str_id, {size[0],size[1]}, flags);
     }
 
+    bool CImGuiCheckbox(const char* label, bool* v) {
+        return ImGui::Checkbox(label, v);
+    }
+
     // Images
 
     void CImGuiImage(
@@ -201,8 +218,8 @@ extern "C" {
     bool CImGuiSelectablePtr(
         const char* label,
         bool* p_selected,
-        ImGuiSelectableFlags flags = 0,
-        const ImVec2& size = ImVec2(0, 0)
+        ImGuiSelectableFlags flags,
+        const float size[2]
     ) {
         return ImGui::Selectable(label, p_selected, flags, {size[0], size[1]});
     }
@@ -316,6 +333,26 @@ extern "C" {
         ImU32 col
     ) {
         draw_list->AddImageQuad(user_texture_id, {p1[0],p1[1]}, {p2[0],p2[1]}, {p3[0],p3[1]}, {p4[0],p4[1]}, {uv1[0],uv1[1]}, {uv2[0],uv2[1]}, {uv3[0],uv3[1]}, {uv4[0],uv4[1]}, col);
+    }
+
+    void CImGuiDrawListPathStroke(
+        ImDrawList* draw_list,
+        ImU32 col,
+        ImDrawFlags flags,
+        float thickness
+    ) {
+        draw_list->PathStroke(col, flags, thickness);
+    }
+
+    void CImGuiDrawListPathArcTo(
+        ImDrawList* draw_list,
+        const float center[2],
+        float radius,
+        float a_min,
+        float a_max,
+        int num_segments
+    ) {
+        draw_list->PathArcTo({center[0], center[1]}, radius, a_min, a_max, num_segments );
     }
 
     void CImGuiDrawListAddCallback(

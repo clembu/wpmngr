@@ -195,7 +195,7 @@ pub fn main() !void {
         .mainRTV = null,
         .sc = sc.?,
         .dev = dev.?,
-        .app = .init(set_sampler, set_diff_blender),
+        .app = undefined,
     };
 
     defer _ = gctx.dev.Unknown.Release();
@@ -242,15 +242,14 @@ pub fn main() !void {
 
     allocator.free(imgbfr);
     if (srv) |t| {
-        gctx.app.image = .{
+        gctx.app = .init(.{
             .txid = t,
             .dims = .{
                 @floatFromInt(width),
                 @floatFromInt(height),
             },
             .sampler = sampler.?,
-        };
-        gctx.app.reset_roi();
+        });
     }
     defer if (srv) |t| {
         _ = t.Unknown.Release();
@@ -368,7 +367,7 @@ const Context = struct {
     }
 };
 
-fn loghresult(name: []const u8, hr: w32.HRESULT) void {
+pub fn loghresult(name: []const u8, hr: w32.HRESULT) void {
     if (hr == w32.S_OK) return;
     const uhr: u32 = @as(u32, @bitCast(hr));
     if (uhr & 0xffff_0000 == 0) {
@@ -377,37 +376,4 @@ fn loghresult(name: []const u8, hr: w32.HRESULT) void {
     } else {
         std.log.err("{s}\t0x{x}", .{ name, uhr });
     }
-}
-
-fn set_sampler(drawlist_: *const anyopaque, cmd_: *const anyopaque) callconv(.c) void {
-    _ = drawlist_;
-    const cmd: *const imgui.draw.Cmd = @ptrCast(@alignCast(cmd_));
-    if (cmd.UserCallbackData) |cbdata| {
-        const sampler: *const dx.ID3D11SamplerState = @ptrCast(@alignCast(cbdata));
-        const rstate: *imgui_dx11.RenderState = @ptrCast(@alignCast(imgui.platform.getRenderState()));
-        const samplers: [1]*const dx.ID3D11SamplerState = .{sampler};
-        rstate.device_ctx.DeviceContext.PSSetSamplers(0, &samplers);
-    }
-}
-
-fn set_diff_blender(drawlist_: *const anyopaque, cmd_: *const anyopaque) callconv(.c) void {
-    _ = drawlist_;
-    _ = cmd_;
-    const rstate: *imgui_dx11.RenderState = @ptrCast(@alignCast(imgui.platform.getRenderState()));
-    var blendState: ?*dx.ID3D11BlendState = null;
-    var blendDesc = std.mem.zeroes(dx.D3D11_BLEND_DESC);
-    blendDesc.renderTarget[0].BlendEnable = w32.TRUE;
-    blendDesc.renderTarget[0].SrcBlend = .one;
-    blendDesc.renderTarget[0].DestBlend = .one;
-    blendDesc.renderTarget[0].BlendOp = .subtract;
-    blendDesc.renderTarget[0].SrcBlendAlpha = .one;
-    blendDesc.renderTarget[0].DestBlendAlpha = .zero;
-    blendDesc.renderTarget[0].BlendOpAlpha = .add;
-    blendDesc.renderTarget[0].RenderTargetWriteMask = .all;
-
-    loghresult(
-        "Create Blend State",
-        rstate.device.Device.CreateBlendState(&blendDesc, &blendState),
-    );
-    rstate.device_ctx.DeviceContext.OMSetBlendState(blendState, &.{ 0, 0, 0, 0 }, 0xffff_ffff);
 }

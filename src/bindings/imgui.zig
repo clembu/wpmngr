@@ -1,6 +1,10 @@
 var tmp_buf: ?std.ArrayList(u8) = null;
 
 const std = @import("std");
+pub const backend = switch (@import("builtin").target.os.tag) {
+    .windows => @import("imgui_win32_dx11.zig"),
+    else => .{},
+};
 
 // ---------------
 // | Basic Types |
@@ -179,6 +183,21 @@ pub const window = struct {
     }
     extern fn CImGuiEnd() void;
 
+    pub fn beginChild(name: [*:0]const u8, args: struct {
+        size: [2]f32 = .{ 0, 0 },
+        child_flags: ChildFlags = .{},
+        window_flags: Flags = .{},
+    }) bool {
+        return CImGuiBeginChild(name, &args.size, args.child_flags, args.window_flags);
+    }
+    extern fn CImGuiBeginChild([*:0]const u8, *const [2]f32, ChildFlags, Flags) bool;
+
+    /// Pop a window from the stack.
+    pub fn endChild() void {
+        return CImGuiEndChild();
+    }
+    extern fn CImGuiEndChild() void;
+
     // ---------------------
     // | Windows Utilities |
     // ---------------------
@@ -259,6 +278,28 @@ pub const window = struct {
             .NoNavInputs = true,
             .NoNavFocus = true,
         };
+    };
+
+    pub const ChildFlags = packed struct(c_int) {
+        /// Show an outer border and enable WindowPadding.
+        borders: bool = false,
+        /// Pad with style.WindowPadding even if no border are drawn (no padding by default for non-bordered child windows because it makes more sense)
+        alwaysUseWindowPadding: bool = false,
+        /// Allow resize from right border (layout direction). Enable .ini saving (unless ImGuiWindowFlags_NoSavedSettings passed to window flags)
+        resizeX: bool = false,
+        /// Allow resize from bottom border (layout direction). "
+        resizeY: bool = false,
+        /// Enable auto-resizing width. Read "IMPORTANT: Size measurement" details above.
+        autoResizeX: bool = false,
+        /// Enable auto-resizing height. Read "IMPORTANT: Size measurement" details above.
+        autoResizeY: bool = false,
+        /// Combined with AutoResizeX/AutoResizeY. Always measure size even when child is hidden, always return true, always disable clipping optimization! NOT RECOMMENDED.
+        alwaysAutoResize: bool = false,
+        /// Style the child window like a framed item: use FrameBg, FrameRounding, FrameBorderSize, FramePadding instead of ChildBg, ChildRounding, ChildBorderSize, WindowPadding.
+        frameStyle: bool = false,
+        /// [BETA] Share focus scope, allow keyboard/gamepad navigation to cross over parent border to this child or between sibling child windows.
+        navFlattened: bool = false,
+        _unused_10_32: u23 = 0,
     };
 };
 
@@ -352,6 +393,11 @@ pub fn invisibleButton(label: [:0]const u8, size: [2]f32, opts: struct {
     return CImGuiInvisibleButton(label, &size, opts.flags);
 }
 extern fn CImGuiInvisibleButton([*:0]const u8, *const [2]f32, ButtonFlags) bool;
+
+pub fn checkbox(label: [:0]const u8, checked: *bool) bool {
+    return CImGuiCheckbox(label, checked);
+}
+extern fn CImGuiCheckbox(label: [*:0]const u8, v: *bool) bool;
 
 pub const ButtonFlags = packed struct(c_int) {
     mouse_button: MouseButton = .{ .left = true },
@@ -850,6 +896,10 @@ pub const draw = struct {
         }
         extern fn CImGuiDrawListAddImageQuad(List, TextureID, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, u32) void;
 
+        pub fn path(draw_list: List) Path {
+            return @ptrCast(draw_list);
+        }
+
         /// Advanced: Draw Callbacks
         /// - May be used to alter render state (change sampler, blending, current shader). May be used to emit custom rendering commands (difficult to do correctly, but possible).
         /// - Use special ImDrawCallback_ResetRenderState callback to instruct backend to reset its render state to the default.
@@ -890,6 +940,34 @@ pub const draw = struct {
             allowVtxOffset: bool = false,
             _unused_5_32: u28 = 0,
         };
+    };
+
+    pub const Path = *opaque {
+        pub fn arc(
+            path: Path,
+            center: [2]f32,
+            radius: f32,
+            angle_min: f32,
+            angle_max: f32,
+            opts: struct {
+                num_segments: u32 = 0,
+            },
+        ) void {
+            CImGuiDrawListPathArcTo(path, &center, radius, angle_min, angle_max, opts.num_segments);
+        }
+        extern fn CImGuiDrawListPathArcTo(Path, *const [2]f32, f32, f32, f32, u32) void;
+
+        pub fn stroke(
+            path: Path,
+            col: u32,
+            opts: struct {
+                flags: Flags = .{},
+                thickness: f32 = 1,
+            },
+        ) void {
+            CImGuiDrawListPathStroke(path, col, opts.flags, opts.thickness);
+        }
+        extern fn CImGuiDrawListPathStroke(Path, u32, Flags, f32) void;
     };
 
     /// Typically, 1 command = 1 GPU draw call (unless command is a callback)
