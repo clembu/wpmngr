@@ -399,6 +399,28 @@ pub fn checkbox(label: [:0]const u8, checked: *bool) bool {
 }
 extern fn CImGuiCheckbox(label: [*:0]const u8, v: *bool) bool;
 
+pub fn progressBar(
+    progress: f32,
+    opts: struct {
+        size: [2]f32 = .{ -std.math.floatMin(f32), 0 },
+        overlay: ?[:0]const u8 = null,
+    },
+) void {
+    CImGuiProgressBar(progress, &opts.size, if (opts.overlay) |s| s else null);
+}
+extern fn CImGuiProgressBar(f32, *const [2]f32, ?[*:0]const u8) void;
+
+pub fn loadingBar(
+    opts: struct {
+        speed: f32 = 1,
+        size: [2]f32 = .{ -std.math.floatMin(f32), 0 },
+        overlay: ?[:0]const u8 = null,
+    },
+) void {
+    CImGuiLoadingBar(opts.speed, &opts.size, if (opts.overlay) |s| s else null);
+}
+extern fn CImGuiLoadingBar(f32, *const [2]f32, ?[*:0]const u8) void;
+
 pub const ButtonFlags = packed struct(c_int) {
     mouse_button: MouseButton = .{ .left = true },
     /// InvisibleButton(): do not disable navigation/tabbing. Otherwise disabled by default.

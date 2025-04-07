@@ -17,6 +17,15 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
 
+    const sqlite_mod = b.createModule(.{
+        .root_source_file = b.path("src/bindings/sqlite.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    sqlite_mod.addIncludePath(b.path("vendor/sqlite"));
+    sqlite_mod.addCSourceFile(.{ .file = b.path("vendor/sqlite/sqlite3.c") });
+    exe_mod.addImport("sqlite", sqlite_mod);
+
     const imgui = b.addStaticLibrary(.{
         .name = "imgui",
         .target = target,

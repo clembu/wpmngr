@@ -186,6 +186,23 @@ extern "C" {
         return ImGui::Checkbox(label, v);
     }
 
+    void CImGuiProgressBar(
+        float fraction,
+        const float size[2],
+        const char* overlay
+    ) {
+        ImGui::ProgressBar(fraction, {size[0], size[1]}, overlay);
+    }
+
+    // custom indeterminate progress bar
+    void CImGuiLoadingBar(
+        float speed,
+        const float size[2],
+        const char* overlay
+    ) {
+        ImGui::ProgressBar(-speed * ImGui::GetTime(), {size[0], size[1]}, overlay);
+    }
+
     // Images
 
     void CImGuiImage(

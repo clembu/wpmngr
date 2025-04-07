@@ -29,10 +29,17 @@ pub fn main() !void {
 
     var args = try std.process.argsWithAllocator(allocator);
     _ = args.skip(); // Skip the command itself.
+    const dbpath = try allocator.dupeZ(u8, try (args.next() orelse error.MissingDbPathArg));
+    defer allocator.free(dbpath);
     const imgpath = try (args.next() orelse error.MissingImageArg);
     const imgpathw = try std.unicode.wtf8ToWtf16LeAllocZ(allocator, imgpath);
     defer allocator.free(imgpathw);
     args.deinit();
+
+    var com: App.Com = .{};
+
+    const worker = try std.Thread.spawn(.{}, run_worker, .{ &com, dbpath });
+    defer worker.join();
 
     var decoder: ?*wic.IWICBitmapDecoder = null;
     loghresult("CreateDecoderFromFilename", wicfac.?.ImagingFactory.CreateDecoderFromFilename(
@@ -242,7 +249,7 @@ pub fn main() !void {
 
     allocator.free(imgbfr);
     if (srv) |t| {
-        gctx.app = .init(.{
+        gctx.app = .init(&com, .{
             .txid = t,
             .dims = .{
                 @floatFromInt(width),
@@ -281,6 +288,10 @@ pub fn main() !void {
             }
         }
         try gctx.paint();
+    }
+    // Keep trying to send the quit message
+    while (!com.work.send(.quit)) {
+        std.Thread.yield() catch {};
     }
 }
 
@@ -375,5 +386,30 @@ pub fn loghresult(name: []const u8, hr: w32.HRESULT) void {
         std.log.err("{s}:\t0x{x} - {any}", .{ name, uhr, w32err });
     } else {
         std.log.err("{s}\t0x{x}", .{ name, uhr });
+    }
+}
+
+fn run_worker(com: *App.Com, dbpath: [:0]const u8) !void {
+    const sqlite = @import("sqlite");
+    const db: sqlite.Db = try .open(dbpath);
+    defer {
+        var busy = true;
+        while (busy) {
+            busy = false;
+            db.close() catch {
+                busy = true;
+            };
+        }
+    }
+    while (!com.gui.send(.ready)) {}
+    var listen = true;
+    while (listen) {
+        if (com.work.receive()) |req| {
+            switch (req) {
+                .quit => {
+                    listen = false;
+                },
+            }
+        }
     }
 }

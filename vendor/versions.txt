@@ -1,2 +1,3 @@
 DEAR IMGUI: 1.91.9-docking
+SQLITE: 3.49.1
 
