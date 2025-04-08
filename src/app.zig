@@ -5,26 +5,34 @@ const spsc = @import("spsc.zig");
 const Cropper = @import("cropper.zig");
 const Image = @import("image.zig");
 
-// NOTE: non-optional cropper right now
-// because that's what we're working on
-cropper: Cropper,
+cropper: ?Cropper,
 db_ready: bool,
-com: *Com,
+op_err: ?anyerror,
+test_image_filename: [255:0]u8,
 
-pub fn init(com: *Com, image: Image) @This() {
+pub fn init() @This() {
     return .{
-        .cropper = .init(image, .{ 9, 16 }, .{ 1080, 1920 }),
-        .com = com,
+        .cropper = null,
         .db_ready = false,
+        .op_err = null,
+        .test_image_filename = @splat(0),
     };
 }
 
-pub fn update(self: *@This()) !void {
-    if (self.com.gui.receive()) |msg| {
-        self.handle_msg(msg);
+pub fn set_image(self: *@This(), image: Image) void {
+    self.cropper = .init(image, .{ 9, 16 }, .{ 1080, 1920 });
+}
+
+pub fn update(self: *@This(), req: *WorkMsgQueue) !void {
+    if (self.cropper == null) {
+        _ = imgui.input.text("Test image filename", &self.test_image_filename, .{});
+        if (imgui.button("Load Test Image", .{})) {
+            _ = req.send(.{ .load_image_file = std.mem.span(self.test_image_filename[0..].ptr) });
+        }
     }
+
     _ = imgui.dockSpace.overViewport(.{});
-    try self.cropper.update();
+    if (self.cropper) |*cr| try cr.update();
     {
         const show_win = imgui.window.begin("About SQLite", .{});
         defer imgui.window.end();
@@ -37,25 +45,32 @@ pub fn update(self: *@This()) !void {
             }
         }
     }
-}
 
-fn handle_msg(self: *@This(), msg: GuiMsg) void {
-    switch (msg) {
-        .ready => self.db_ready = true,
+    if (self.op_err) |err| {
+        const show_win = imgui.window.begin("Error", .{});
+        defer imgui.window.end();
+        if (show_win) {
+            try imgui.text("{any}", .{err});
+        }
     }
 }
 
+pub fn handle_msg(self: *@This(), msg: AppMsg) void {
+    switch (msg) {
+        .db_ready => self.db_ready = true,
+    }
+}
+
+pub fn set_error(self: *@This(), err: ?anyerror) void {
+    self.op_err = err;
+}
+
 pub const WorkMsg = union(enum) {
+    load_image_file: [:0]const u8,
     quit,
 };
-pub const WorkSPSC = spsc.SPSC(WorkMsg, 64);
+pub const WorkMsgQueue = spsc.SPSC(WorkMsg, 64);
 
-pub const GuiMsg = union(enum) {
-    ready,
-};
-pub const GuiSPSC = spsc.SPSC(GuiMsg, 8);
-
-pub const Com = struct {
-    work: WorkSPSC = .{},
-    gui: GuiSPSC = .{},
+pub const AppMsg = union(enum) {
+    db_ready,
 };

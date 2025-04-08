@@ -281,6 +281,17 @@ extern "C" {
         return ImGui::DragInt(label, v, v_speed, v_min, v_max, format, flags);
     }
 
+    // Text Inputs
+
+    bool CImGuiInputText(
+        const char* label,
+        char* buf,
+        size_t buf_size,
+        ImGuiInputTextFlags flags
+    ) {
+        return ImGui::InputText(label, buf, buf_size, flags);
+    }
+
     // PlatformIO
 
     void* CImGuiPlatformIOGetRenderState() {

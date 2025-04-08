@@ -547,6 +547,76 @@ pub const SliderFlags = packed struct(c_int) {
     pub const alwaysClamp: SliderFlags = .{ .clampOnInput = true, .clampZeroRange = true };
 };
 
+/// --------------------------------
+/// | Widgets: Input with Keyboard |
+/// --------------------------------
+pub const input = struct {
+    pub fn text(label: [:0]const u8, buf: []u8, opts: struct {
+        flags: Flags = .{},
+    }) bool {
+        return CImGuiInputText(label, buf.ptr, buf.len, opts.flags);
+    }
+    extern fn CImGuiInputText([*:0]const u8, [*]u8, usize, Flags) bool;
+
+    pub const Flags = packed struct(u32) {
+        chars: packed struct {
+            /// Allow 0123456789.+-*/
+            decimal: bool = false,
+            /// Allow 0123456789ABCDEFabcdef
+            hexadecimal: bool = false,
+            /// Allow 0123456789.+-*/eE (Scientific notation input)
+            scientific: bool = false,
+            /// Turn a..z into A..Z
+            uppercase: bool = false,
+            /// Filter out spaces, tabs
+            no_blank: bool = false,
+        } = .{},
+
+        keybinds: packed struct {
+            /// Pressing TAB input a '\t' character into the text field
+            allow_tab_input: bool = false,
+            /// Return 'true' when Enter is pressed (as opposed to every time the value was modified). Consider using IsItemDeactivatedAfterEdit() instead!
+            enter_returns_true: bool = false,
+            /// Escape key clears content if not empty, and deactivate otherwise (contrast to default behavior of Escape to revert)
+            escape_clears_all: bool = false,
+            /// In multi-line mode, validate with Enter, add new line with Ctrl+Enter (default is opposite: validate with Ctrl+Enter, add line with Enter).
+            ctrl_enter_for_new_line: bool = false,
+        } = .{},
+
+        /// Read-only mode
+        read_only: bool = false,
+        /// Password mode, display all characters as '*', disable copy
+        password: bool = false,
+        /// Overwrite mode
+        always_overwrite: bool = false,
+        /// Select entire text when first taking mouse focus
+        auto_select_all: bool = false,
+
+        /// InputFloat(), InputInt(), InputScalar() etc. only:
+        empty_ref_val: packed struct {
+            /// parse empty string as zero value.
+            parse: bool = false,
+            /// when value is zero, do not display it.
+            /// Generally used with `parse`.
+            display: bool = false,
+        } = .{},
+
+        /// Disable following the cursor horizontally
+        no_horizontal_scroll: bool = false,
+        /// Disable undo/redo. Note that input text owns the text data while active, if you want to provide your own undo/redo stack you need e.g. to call ClearActiveID().
+        no_undo_redo: bool = false,
+
+        /// When text doesn't fit, elide left side to ensure right side stays visible.
+        /// Useful for path/filenames. Single-line only!
+        elide_left: bool = false,
+
+        // Callback features
+        _unused_callback_19_24: u6 = 0,
+
+        _unused_25_32: u8 = 0,
+    };
+};
+
 /// ------------------------
 /// | Widgets: Selectables |
 /// ------------------------

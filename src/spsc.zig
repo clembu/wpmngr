@@ -33,7 +33,7 @@ pub fn SPSC(comptime T: type, capacity: comptime_int) type {
                 }
             }
             self.ring[pushcur & cap_mask] = item;
-            _ = self.write_cursor.fetchAdd(1, .release);
+            _ = self.write_cursor.store(pushcur + 1, .release);
             return true;
         }
 
@@ -46,7 +46,7 @@ pub fn SPSC(comptime T: type, capacity: comptime_int) type {
                 }
             }
             const item = self.ring[popcur & cap_mask];
-            _ = self.read_cursor.fetchAdd(1, .release);
+            _ = self.read_cursor.store(popcur + 1, .release);
             return item;
         }
     };
