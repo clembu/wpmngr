@@ -20,7 +20,7 @@ My goal with this project is to have a tool giving its users the ability to:
 - [ ] Linux build
 
 #### Features
-- [x] Image region selection view (**In progress**)
+- [x] Image region selection view
 - [ ] Static Collections
 - [ ] Slideshow
 - [ ] Custom data types and relationships
@@ -46,12 +46,14 @@ zig build wpmngr
 > Regardless of the target you supply, the build will try to produce a Windows executable, and likely expect to build *on* a Windows system.
 
 ### Running
-Once built, you can call the program and give it an image to show a rectangle selection view for.
+Once built, you can call the program and give it a filepath for its sqlite DB, and optionally an image to show a rectangle selection view for.
 ```
-zig-out/bin/wpmngr path/to/test/image
+zig-out/bin/wpmngr path/to/test/db [path/to/test/image]
 ```
 
 ## License
 The code bundles a copy of [Dear Imgui](https://github.com/ocornut/imgui), which includes it's own license.
+
+The code bundles an amalgamation of [SQLite](https://sqlite.org), which is in the public domain
 
 The rest is licensed as per the LICENSE file.
