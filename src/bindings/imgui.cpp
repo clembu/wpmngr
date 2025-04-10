@@ -71,6 +71,26 @@ extern "C" {
         ImGui::SameLine(offset_from_start_x, spacing);
     }
 
+    // move content position toward the right, by indent_w, or style.IndentSpacing if indent_w <= 0
+    void CImGuiIndent(float indent_w) {
+        ImGui::Indent(indent_w);
+    }
+
+    // move content position back to the left, by indent_w, or style.IndentSpacing if indent_w <= 0
+    void CImGuiUnindent(float indent_w) {
+        ImGui::Unindent(indent_w);
+    }
+
+    // ID stack/scopes
+
+    void CImGuiPushIntID(int int_id) {
+        ImGui::PushID(int_id);
+    }
+
+    void CImGuiPopID() {
+        ImGui::PopID();
+    }
+
     // Docking
 
     ImGuiID CImGuiDockSpaceOverViewport(

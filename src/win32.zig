@@ -17,12 +17,14 @@ pub fn main() !void {
 
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     defer _ = gpa.deinit();
+
     const allocator = gpa.allocator();
 
     var args = try std.process.argsWithAllocator(allocator);
     _ = args.skip(); // Skip the command itself.
     const dbpath = try allocator.dupeZ(u8, try (args.next() orelse error.MissingDbPathArg));
     defer allocator.free(dbpath);
+
     const imgpath = if (args.next()) |arg| try allocator.dupeZ(u8, arg) else null;
     defer if (imgpath) |path| allocator.free(path);
     args.deinit();
@@ -128,7 +130,7 @@ pub fn main() !void {
         .mainRTV = null,
         .sc = sc.?,
         .dev = dev.?,
-        .app = .init(),
+        .app = .init(allocator),
     };
     defer gctx.deinit();
 
@@ -220,6 +222,7 @@ const Context = struct {
     app: App,
 
     pub fn deinit(ctx: *Context) void {
+        ctx.app.deinit();
         if (ctx.mainRTV) |rtv| {
             _ = rtv.Unknown.Release();
         }
@@ -421,19 +424,14 @@ const Mailbox = struct {
 };
 
 fn run_worker(allocator: std.mem.Allocator, com: *Mailbox, dbpath: [:0]const u8) !void {
-    const sqlite = @import("sqlite");
-    const db: sqlite.Db = try .open(dbpath);
-    defer {
-        var busy = true;
-        while (busy) {
-            busy = false;
-            db.close() catch {
-                busy = true;
-            };
-        }
-    }
+    const Log = std.log.scoped(.worker_thread);
+    const Db = @import("db/db.zig");
+    var db: Db = try .init(dbpath);
+    defer db.deinit();
 
-    while (!com.gui.send(.{ .appmsg = .db_ready })) {}
+    while (!com.gui.send(.{ .appmsg = .db_ready })) {
+        std.Thread.yield() catch {};
+    }
 
     const wicfac: *wic.IWICImagingFactory = blk: {
         var wicfac: ?*wic.IWICImagingFactory = null;
@@ -454,7 +452,19 @@ fn run_worker(allocator: std.mem.Allocator, com: *Mailbox, dbpath: [:0]const u8)
             switch (req) {
                 .load_image_file => |path| {
                     const loaded_image = load_image(wicfac, allocator, path) catch error.ImageInitFailed;
-                    while (!com.gui.send(.{ .load_texture = loaded_image })) {}
+                    while (!com.gui.send(.{ .load_texture = loaded_image })) {
+                        std.Thread.yield() catch {};
+                    }
+                },
+                .get_monitors => {
+                    const monitors = try db.get_monitors(allocator);
+                    while (!com.gui.send(.{ .appmsg = .{ .monitors = monitors } })) {
+                        std.Thread.yield() catch {};
+                    }
+                },
+                .set_monitors => |deltas| {
+                    defer allocator.free(deltas);
+                    try db.update_monitors(deltas);
                 },
                 .quit => {
                     listen = false;
@@ -465,6 +475,7 @@ fn run_worker(allocator: std.mem.Allocator, com: *Mailbox, dbpath: [:0]const u8)
             std.Thread.yield() catch {};
         }
     }
+    Log.debug("Worker is quitting", .{});
 }
 
 fn load_image(

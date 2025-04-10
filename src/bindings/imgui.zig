@@ -362,6 +362,29 @@ pub const layout = struct {
         CImGuiSameLine(opts.xoffset, opts.spacing);
     }
     extern fn CImGuiSameLine(f32, f32) void;
+
+    pub fn indent(opts: struct { width: f32 = 0 }) void {
+        CImGuiIndent(opts.width);
+    }
+
+    pub fn unindent(opts: struct { width: f32 = 0 }) void {
+        CImGuiUnindent(opts.width);
+    }
+
+    extern fn CImGuiIndent(f32) void;
+    extern fn CImGuiUnindent(f32) void;
+};
+
+/// -------------------
+/// | ID stack/scopes |
+/// -------------------
+pub const ids = struct {
+    pub fn pushUSize(i: usize) void {
+        CImGuiPushIntID(@intCast(i));
+    }
+    extern fn CImGuiPushIntID(i32) void;
+    pub fn pop() void {CImGuiPopID();}
+    extern fn CImGuiPopID() void;
 };
 
 // -----------------
