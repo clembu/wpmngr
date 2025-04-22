@@ -273,6 +273,22 @@ const DXGI_PRESENT = packed struct(w32.UINT) {
     __unused: u22 = 0,
 };
 
+pub const DXGI_OUTPUT_DESC = extern struct {
+    DeviceName: [32]w32.WCHAR,
+    DesktopCoordinates: w32.RECT,
+    AttachedToDesktop: w32.BOOL,
+    Rotation: DXGI_MODE_ROTATION,
+    Monitor: w32.HMONITOR,
+};
+
+pub const DXGI_MODE_ROTATION = enum(w32.UINT) {
+    unspecified = 0,
+    identity = 1,
+    rotate90 = 2,
+    rotate180 = 3,
+    rotate270 = 4,
+};
+
 pub const D3D11_TEXTURE2D_DESC = extern struct {
     Width: w32.UINT,
     Height: w32.UINT,
@@ -619,7 +635,101 @@ pub const D3D11_COLOR_WRITE_ENABLE = packed struct(u8) {
     };
 };
 
+pub const DXGI_ERROR_NOT_FOUND: w32.HRESULT = @bitCast(@as(c_ulong, 0x887A0002));
+
 // Interfaces
+
+pub const IDXGIDevice = extern struct {
+    __v: *const VTable,
+
+    Device: Mixin(@This()) = .{},
+    Unknown: w32.IUnknown.Mixin(@This()) = .{},
+
+    pub fn Mixin(comptime T: type) type {
+        return struct {
+            pub fn GetAdapter(m: *@This(), adapter: *?*IDXGIAdapter) w32.HRESULT {
+                const self: *T = @alignCast(@fieldParentPtr("Device", m));
+                const vt: *const IDXGIDevice.VTable = @ptrCast(self.__v);
+                const ctx: *IDXGIDevice = @ptrCast(self);
+                return vt.GetAdapter(ctx, adapter);
+            }
+        };
+    }
+
+    pub const IID = w32.GUID.parse("{54ec77fa-1377-44e6-8c32-88fd5f44c84c}");
+    pub const VTable = extern struct {
+        const T = IDXGIDevice;
+        base: IDXGIObject.VTable,
+        GetAdapter: *const fn (*T, *?*IDXGIAdapter) callconv(.winapi) w32.HRESULT,
+        CreateSurface: *anyopaque,
+        QueryResourceResidency: *anyopaque,
+        SetGPUThreadPriority: *anyopaque,
+        GetGPUThreadPriority: *anyopaque,
+    };
+};
+
+pub const IDXGIAdapter = extern struct {
+    __v: *const VTable,
+
+    Adapter: Mixin(@This()) = .{},
+    Unknown: w32.IUnknown.Mixin(@This()) = .{},
+
+    pub fn Mixin(comptime T: type) type {
+        return struct {
+            pub fn EnumOutputs(m: *@This(), idx: u32, output: *?*IDXGIOutput) w32.HRESULT {
+                const self: *T = @alignCast(@fieldParentPtr("Adapter", m));
+                const vt: *const IDXGIAdapter.VTable = @ptrCast(self.__v);
+                const ctx: *IDXGIAdapter = @ptrCast(self);
+                return vt.EnumOutputs(ctx, idx, output);
+            }
+        };
+    }
+
+    pub const IID = w32.GUID.parse("{2411e7e1-12ac-4ccf-bd14-9798e8534dc0}");
+    pub const VTable = extern struct {
+        const T = IDXGIAdapter;
+        base: IDXGIObject.VTable,
+        EnumOutputs: *const fn (*T, w32.UINT, *?*IDXGIOutput) callconv(.winapi) w32.HRESULT,
+        GetDesc: *anyopaque,
+        CheckInterfaceSupport: *anyopaque,
+    };
+};
+
+pub const IDXGIOutput = extern struct {
+    __v: *const VTable,
+
+    Output: Mixin(@This()) = .{},
+    Unknown: w32.IUnknown.Mixin(@This()) = .{},
+
+    pub fn Mixin(comptime T: type) type {
+        return struct {
+            pub fn GetDesc(m: *@This(), ptr: *DXGI_OUTPUT_DESC) w32.HRESULT {
+                const self: *T = @alignCast(@fieldParentPtr("Output", m));
+                const vt: *const IDXGIOutput.VTable = @ptrCast(self.__v);
+                const ctx: *IDXGIOutput = @ptrCast(self);
+                return vt.GetDesc(ctx, ptr);
+            }
+        };
+    }
+
+    pub const IID = w32.GUID.parse("{ae02eedb-c735-4690-8d52-5a8dc20213aa}");
+    pub const VTable = extern struct {
+        const T = IDXGIOutput;
+        base: IDXGIObject.VTable,
+        GetDesc: *const fn (*T, *DXGI_OUTPUT_DESC) callconv(.winapi) w32.HRESULT,
+        GetDisplayModeList: *anyopaque,
+        FindClosestMatchingMode: *anyopaque,
+        WaitForVBlank: *anyopaque,
+        TakeOwnership: *anyopaque,
+        ReleaseOwnership: *anyopaque,
+        GetGammaControlCapabilities: *anyopaque,
+        SetGammaControl: *anyopaque,
+        GetGammaControl: *anyopaque,
+        SetDisplaySurface: *anyopaque,
+        GetDisplaySurfaceData: *anyopaque,
+        GetFrameStatistics: *anyopaque,
+    };
+};
 
 pub const IDXGISwapChain = extern struct {
     __v: *const VTable,

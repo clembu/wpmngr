@@ -54,6 +54,11 @@ extern fn CImGuiDestroyContext(?Context) void;
 // | Main |
 // --------
 
+pub fn getStyle() *Style {
+    return CImGuiGetStyle();
+}
+extern fn CImGuiGetStyle() *Style;
+
 pub fn newFrame() void {
     CImGuiNewFrame();
 }
@@ -201,6 +206,11 @@ pub const window = struct {
     // ---------------------
     // | Windows Utilities |
     // ---------------------
+
+    pub fn getDPIScale() f32 {
+        return CImGuiGetWindowDpiScale();
+    }
+    extern fn CImGuiGetWindowDpiScale() f32;
 
     pub fn getDrawList() draw.List {
         return CImGuiGetWindowDrawList();
@@ -363,6 +373,16 @@ pub const layout = struct {
     }
     extern fn CImGuiSameLine(f32, f32) void;
 
+    pub fn newLine() void {
+        CImGuiNewLine();
+    }
+    extern fn CImGuiNewLine() void;
+
+    pub fn dummy(size: [2]f32) void {
+        CImGuiDummy(&size);
+    }
+    extern fn CImGuiDummy(*const [2]f32) void;
+
     pub fn indent(opts: struct { width: f32 = 0 }) void {
         CImGuiIndent(opts.width);
     }
@@ -373,6 +393,47 @@ pub const layout = struct {
 
     extern fn CImGuiIndent(f32) void;
     extern fn CImGuiUnindent(f32) void;
+
+    /// ~ FontSize
+    pub fn lineHeight() f32 {
+        return CImGuiGetTextLineHeight();
+    }
+
+    /// ~ FontSize + style.ItemSpacing.y
+    /// (distance in pixels between 2 consecutive lines of text)
+    pub fn lineHeightWithSpacing() f32 {
+        return CImGuiGetTextLineHeightWithSpacing();
+    }
+
+    /// ~ FontSize + style.FramePadding.y * 2
+    pub fn frameHeight() f32 {
+        return CImGuiGetFrameHeight();
+    }
+
+    /// ~ FontSize + style.FramePadding.y * 2 + style.ItemSpacing.y
+    /// (distance in pixels between 2 consecutive lines of text)
+    pub fn frameHeightWithSpacing() f32 {
+        return CImGuiGetFrameHeightWithSpacing();
+    }
+
+    extern fn CImGuiGetTextLineHeight() f32;
+    extern fn CImGuiGetTextLineHeightWithSpacing() f32;
+    extern fn CImGuiGetFrameHeight() f32;
+    extern fn CImGuiGetFrameHeightWithSpacing() f32;
+};
+
+pub const group = struct {
+    /// lock horizontal starting position
+    pub fn begin() void {
+        CImGuiBeginGroup();
+    }
+    extern fn CImGuiBeginGroup() void;
+
+    /// unlock horizontal starting position + capture the whole group bounding box into one "item" (so you can use IsItemHovered() or layout primitives such as SameLine() on whole group, etc.)
+    pub fn end() void {
+        CImGuiEndGroup();
+    }
+    extern fn CImGuiEndGroup() void;
 };
 
 /// -------------------
@@ -383,23 +444,70 @@ pub const ids = struct {
         CImGuiPushIntID(@intCast(i));
     }
     extern fn CImGuiPushIntID(i32) void;
-    pub fn pop() void {CImGuiPopID();}
+    pub fn pop() void {
+        CImGuiPopID();
+    }
     extern fn CImGuiPopID() void;
 };
 
 // -----------------
 // | Widgets: Text |
 // -----------------
-pub fn text(comptime fmt: []const u8, args: anytype) !void {
-    // Resize the buffer if needed
-    const req_len = std.fmt.count(fmt, args);
-    if (req_len > tmp_buf.?.items.len) {
-        try tmp_buf.?.resize(@intCast(req_len));
+pub const text = struct {
+    pub fn formatted(comptime fmt: []const u8, args: anytype) !void {
+        // Resize the buffer if needed
+        const req_len = std.fmt.count(fmt, args);
+        if (req_len > tmp_buf.?.items.len) {
+            try tmp_buf.?.resize(@intCast(req_len));
+        }
+        const txt = try std.fmt.bufPrint(tmp_buf.?.items, fmt, args);
+        CImGuiTextUnformatted(txt.ptr, txt.ptr + txt.len);
     }
-    const formatted = try std.fmt.bufPrint(tmp_buf.?.items, fmt, args);
-    CImGuiTextUnformatted(formatted.ptr, formatted.ptr + formatted.len);
-}
-extern fn CImGuiTextUnformatted([*]const u8, [*]const u8) void;
+
+    pub fn raw(txt: []const u8) void {
+        CImGuiTextUnformatted(txt.ptr, txt.ptr + txt.len);
+    }
+    extern fn CImGuiTextUnformatted([*]const u8, [*]const u8) void;
+
+    pub fn calcRawSize(txt: []const u8, opts: struct {
+        hide_text_after_double_hash: bool = false,
+        wrap_width: f32 = -1.0,
+    }) [2]f32 {
+        var size: [2]f32 = undefined;
+        CImGuiCalcTextSize(
+            txt.ptr,
+            txt.ptr + txt.len,
+            &size,
+            opts.hide_text_after_double_hash,
+            opts.wrap_width,
+        );
+        return size;
+    }
+
+    pub fn calcFormattedSize(comptime fmt: []const u8, fargs: anytype, opts: struct {
+        hide_text_after_double_hash: bool = false,
+        wrap_width: f32 = -1.0,
+    }) ![2]f32 {
+        var size: [2]f32 = undefined;
+        // Resize the buffer if needed
+        const req_len = std.fmt.count(fmt, fargs);
+        if (req_len > tmp_buf.?.items.len) {
+            try tmp_buf.?.resize(@intCast(req_len));
+        }
+        const txt = try std.fmt.bufPrint(tmp_buf.?.items, fmt, fargs);
+        CImGuiCalcTextSize(
+            txt.ptr,
+            txt.ptr + txt.len,
+            &size,
+            opts.hide_text_after_double_hash,
+            opts.wrap_width,
+        );
+        return size;
+    }
+    extern fn CImGuiCalcTextSize([*]const u8, [*]const u8, *[2]f32, bool, f32) void;
+
+    // TODO: helpers for centered text
+};
 
 // -----------------
 // | Widgets: Main |
@@ -705,6 +813,112 @@ pub const selectable = struct {
     };
 };
 
+/// ------------------
+/// | Widgets: Menus |
+/// ------------------
+pub const menu = struct {
+    pub const bar = struct {
+        /// append to menu-bar of current window.
+        /// *requires `ImGuiWindowFlags_MenuBar` flag set on parent window*
+        pub fn begin() bool {
+            return CImGuiBeginMenuBar();
+        }
+        extern fn CImGuiBeginMenuBar() bool;
+
+        /// only call `end()` if `begin()` returns true!
+        pub fn end() void {
+            CImGuiEndMenuBar();
+        }
+        extern fn CImGuiEndMenuBar() void;
+    };
+
+    pub fn item(label: [:0]const u8, opts: struct {
+        shortcut: ?[:0]const u8 = null,
+        selected: bool = false,
+        enabled: bool = true,
+    }) bool {
+        return CImGuiMenuItem(label, opts.shortcut, opts.selected, opts.enabled);
+    }
+    extern fn CImGuiMenuItem([*:0]const u8, ?[*:0]const u8, bool, bool) bool;
+
+    pub fn toggle(label: [:0]const u8, selected: *bool, opts: struct {
+        shortcut: ?[:0]const u8 = null,
+        enabled: bool = true,
+    }) bool {
+        return CImGuiMenuItemToggle(label, opts.shortcut, selected, opts.enabled);
+    }
+    extern fn CImGuiMenuItemToggle([*:0]const u8, ?[*:0]const u8, *bool, bool) bool;
+};
+
+/// ------------------
+/// | Popups, Modals |
+/// ------------------
+///  - Their visibility state (~bool) is held internally instead of being held by the programmer as we are used to with regular Begin*() calls.
+///  - IMPORTANT: Popup identifiers are relative to the current ID stack, so `open` and `begin` generally needs to be at the same level of the stack.
+pub const popup = struct {
+    /// call to mark popup as open (don't call every frame!).
+    pub fn open(id: [:0]const u8, opts: struct { flags: Flags = .{} }) void {
+        CImGuiOpenPopup(id, opts.flags);
+    }
+    extern fn CImGuiOpenPopup([*:0]const u8, Flags) void;
+
+    /// return true if the popup is open, and you can start outputting to it.
+    ///
+    /// Call `end()` only if it returns true
+    pub fn begin(id: [:0]const u8, opts: struct { flags: window.Flags = .{} }) bool {
+        return CImGuiBeginPopup(id, opts.flags);
+    }
+    extern fn CImGuiBeginPopup([*:0]const u8, window.Flags) bool;
+
+    /// return true if the modal is open, and you can start outputting to it.
+    ///
+    /// If `opts.open` is specified for a modal popup window, the popup will have a regular close button which will close the popup.
+    /// Note that popup visibility status is owned by Dear ImGui (and manipulated with e.g. `open()`).
+    /// - `opts.open` set back to false in `beginModal()` when popup is not open.
+    /// - if you set `opts.open` to false before calling `beginModal()`, it will close the popup.
+    ///
+    /// Call `end()` only if it returns true
+    pub fn beginModal(id: [:0]const u8, opts: struct {
+        open: ?*bool = null,
+        flags: window.Flags = .{},
+    }) bool {
+        return CImGuiBeginPopupModal(id, opts.open, opts.flags);
+    }
+    extern fn CImGuiBeginPopupModal([*:0]const u8, ?*bool, window.Flags) bool;
+
+    /// only call `end()` if `begin()` or `beginModal()` returns true
+    pub fn end() void {
+        CImGuiEndPopup();
+    }
+    extern fn CImGuiEndPopup() void;
+
+    /// manually close the current popup
+    pub fn close() void {
+        CImGuiCloseCurrentPopup();
+    }
+    extern fn CImGuiCloseCurrentPopup() void;
+
+    pub const Flags = packed struct(u32) {
+        mouse_button: enum(u5) {
+            left = 0,
+            right = 1,
+            middle = 2,
+        } = .right,
+        no_reopen: bool = false,
+        _unused_7: bool = false,
+        no_open_over_existing_popup: bool = false,
+        no_open_over_items: bool = false,
+        any_popup_id: bool = false,
+        any_popup_level: bool = false,
+        _unused_12_32: u21 = 0,
+
+        pub const any_popup: @This() = .{
+            .any_popup_id = true,
+            .any_popup_level = true,
+        };
+    };
+};
+
 /// -----------
 /// | Docking |
 /// -----------
@@ -797,6 +1011,13 @@ pub const item = struct {
         return CImGuiIsItemDeactivated();
     }
     extern fn CImGuiIsItemDeactivated() bool;
+
+    pub fn getRectSize() [2]f32 {
+        var sz: [2]f32 = undefined;
+        CImGuiGetItemRectSize(&sz);
+        return sz;
+    }
+    extern fn CImGuiGetItemRectSize(*[2]f32) void;
 
     pub const HoveredFlags = packed struct(u32) {
         /// IsWindowHovered() only: Return true if any children of the window is hovered
@@ -902,6 +1123,14 @@ pub const mouse = struct {
     };
 };
 
+pub const Dir = enum(i32) {
+    none = -1,
+    left = 0,
+    right = 1,
+    up = 2,
+    down = 3,
+};
+
 /// ---------------
 /// | Drawing API |
 /// ---------------
@@ -985,6 +1214,26 @@ pub const draw = struct {
             );
         }
         extern fn CImGuiDrawListAddQuad(List, *const [2]f32, *const [2]f32, *const [2]f32, *const [2]f32, u32, f32) void;
+
+        pub fn addText(draw_list: List, txt: []const u8, pos: [2]f32, col: u32) void {
+            CImGuiDrawListAddText(draw_list, &pos, col, txt.ptr, txt.ptr + txt.len);
+        }
+        pub fn addFormattedText(
+            draw_list: List,
+            comptime fmt: []const u8,
+            args: anytype,
+            pos: [2]f32,
+            col: u32,
+        ) !void {
+            // Resize the buffer if needed
+            const req_len = std.fmt.count(fmt, args);
+            if (req_len > tmp_buf.?.items.len) {
+                try tmp_buf.?.resize(@intCast(req_len));
+            }
+            const txt = try std.fmt.bufPrint(tmp_buf.?.items, fmt, args);
+            CImGuiDrawListAddText(draw_list, &pos, col, txt.ptr, txt.ptr + txt.len);
+        }
+        extern fn CImGuiDrawListAddText(List, *const [2]f32, u32, [*]const u8, [*]const u8) void;
 
         pub fn addImageQuad(
             draw_list: List,
@@ -1202,6 +1451,218 @@ pub const draw = struct {
 ///   - Work Area = entire viewport minus sections used by main menu bars (for platform windows), or by task bar (for platform monitor).
 ///   - Windows are generally trying to stay within the Work Area of their host viewport.
 pub const Viewport = opaque {};
+
+pub const Style = extern struct {
+    /// Global alpha applies to everything in Dear ImGui.
+    alpha: f32,
+    /// Additional alpha multiplier applied by BeginDisabled(). Multiply over current value of Alpha.
+    disabledAlpha: f32,
+    /// Padding within a window.
+    windowPadding: [2]f32,
+    /// Radius of window corners rounding. Set to 0.0f to have rectangular windows. Large values tend to lead to variety of artifacts and are not recommended.
+    windowRounding: f32,
+    /// Thickness of border around windows. Generally set to 0.0f or 1.0f. (Other values are not well tested and more CPU/GPU costly).
+    windowBorderSize: f32,
+    /// Hit-testing extent outside/inside resizing border. Also extend determination of hovered window. Generally meaningfully larger than WindowBorderSize to make it easy to reach borders.
+    windowBorderHoverPadding: f32,
+    /// Minimum window size. This is a global setting. If you want to constrain individual windows, use SetNextWindowSizeConstraints().
+    windowMinSize: [2]f32,
+    /// Alignment for title bar text. Defaults to (0.0f,0.5f) for left-aligned,vertically centered.
+    windowTitleAlign: [2]f32,
+    /// Side of the collapsing/docking button in the title bar (None/Left/Right). Defaults to `Dir.left`.
+    windowMenuButtonPosition: Dir,
+    /// Radius of child window corners rounding. Set to 0.0f to have rectangular windows.
+    childRounding: f32,
+    /// Thickness of border around child windows. Generally set to 0.0f or 1.0f. (Other values are not well tested and more CPU/GPU costly).
+    childBorderSize: f32,
+    /// Radius of popup window corners rounding. (Note that tooltip windows use WindowRounding)
+    popupRounding: f32,
+    /// Thickness of border around popup/tooltip windows. Generally set to 0.0f or 1.0f. (Other values are not well tested and more CPU/GPU costly).
+    popupBorderSize: f32,
+    /// Padding within a framed rectangle (used by most widgets).
+    framePadding: [2]f32,
+    /// Radius of frame corners rounding. Set to 0.0f to have rectangular frame (used by most widgets).
+    frameRounding: f32,
+    /// Thickness of border around frames. Generally set to 0.0f or 1.0f. (Other values are not well tested and more CPU/GPU costly).
+    frameBorderSize: f32,
+    /// Horizontal and vertical spacing between widgets/lines.
+    itemSpacing: [2]f32,
+    /// Horizontal and vertical spacing between within elements of a composed widget (e.g. a slider and its label).
+    itemInnerSpacing: [2]f32,
+    /// Padding within a table cell. Cellpadding.x is locked for entire table. CellPadding.y may be altered between different rows.
+    cellPadding: [2]f32,
+    /// Expand reactive bounding box for touch-based system where touch position is not accurate enough. Unfortunately we don't sort widgets so priority on overlap will always be given to the first widget. So don't grow this too much!
+    touchExtraPadding: [2]f32,
+    /// Horizontal indentation when e.g. entering a tree node. Generally == (FontSize + FramePadding.x*2).
+    indentSpacing: f32,
+    /// Minimum horizontal spacing between two columns. Preferably > (FramePadding.x + 1).
+    columnsMinSpacing: f32,
+    /// Width of the vertical scrollbar, Height of the horizontal scrollbar.
+    scrollbarSize: f32,
+    /// Radius of grab corners for scrollbar.
+    scrollbarRounding: f32,
+    /// Minimum width/height of a grab box for slider/scrollbar.
+    grabMinSize: f32,
+    /// Radius of grabs corners rounding. Set to 0.0f to have rectangular slider grabs.
+    grabRounding: f32,
+    /// The size in pixels of the dead-zone around zero on logarithmic sliders that cross zero.
+    logSliderDeadzone: f32,
+    /// Thickness of border around Image() calls.
+    imageBorderSize: f32,
+    /// Radius of upper corners of a tab. Set to 0.0f to have rectangular tabs.
+    tabRounding: f32,
+    /// Thickness of border around tabs.
+    tabBorderSize: f32,
+    /// -1: always visible. 0.0f: visible when hovered. >0.0f: visible when hovered if minimum width.
+    tabCloseButtonMinWidthSelected: f32,
+    /// -1: always visible. 0.0f: visible when hovered. >0.0f: visible when hovered if minimum width. FLT_MAX: never show close button when unselected.
+    tabCloseButtonMinWidthUnselected: f32,
+    /// Thickness of tab-bar separator, which takes on the tab active color to denote focus.
+    tabBarBorderSize: f32,
+    /// Thickness of tab-bar overline, which highlights the selected tab-bar.
+    tabBarOverlineSize: f32,
+    /// Angle of angled headers (supported values range from -50.0f degrees to +50.0f degrees).
+    tableAngledHeadersAngle: f32,
+    /// Alignment of angled headers within the cell
+    tableAngledHeadersTextAlign: [2]f32,
+    /// Side of the color button in the ColorEdit4 widget (left/right). Defaults to `Dir.right`.
+    colorButtonPosition: Dir,
+    /// Alignment of button text when button is larger than text. Defaults to (0.5f, 0.5f) (centered).
+    buttonTextAlign: [2]f32,
+    /// Alignment of selectable text. Defaults to (0.0f, 0.0f) (top-left aligned). It's generally important to keep this left-aligned if you want to lay multiple items on a same line.
+    selectableTextAlign: [2]f32,
+    /// Thickness of border in SeparatorText()
+    separatorTextBorderSize: f32,
+    /// Alignment of text within the separator. Defaults to (0.0f, 0.5f) (left aligned, center).
+    separatorTextAlign: [2]f32,
+    /// Horizontal offset of text from each edge of the separator + spacing on other axis. Generally small values. .y is recommended to be == FramePadding.y.
+    separatorTextPadding: [2]f32,
+    /// Apply to regular windows: amount which we enforce to keep visible when moving near edges of your screen.
+    displayWindowPadding: [2]f32,
+    /// Apply to every windows, menus, popups, tooltips: amount where we avoid displaying contents. Adjust if you cannot see the edges of your screen (e.g. on a TV where scaling has not been configured).
+    displaySafeAreaPadding: [2]f32,
+    /// Thickness of resizing border between docked windows
+    dockingSeparatorSize: f32,
+    /// Scale software rendered mouse cursor (when io.MouseDrawCursor is enabled). We apply per-monitor DPI scaling over this scale. May be removed later.
+    mouseCursorScale: f32,
+    /// Enable anti-aliased lines/borders. Disable if you are really tight on CPU/GPU. Latched at the beginning of the frame (copied to ImDrawList).
+    antiAliasedLines: bool,
+    /// Enable anti-aliased lines/borders using textures where possible. Require backend to render with bilinear filtering (NOT point/nearest filtering). Latched at the beginning of the frame (copied to ImDrawList).
+    antiAliasedLinesUseTex: bool,
+    /// Enable anti-aliased edges around filled shapes (rounded rectangles, circles, etc.). Disable if you are really tight on CPU/GPU. Latched at the beginning of the frame (copied to ImDrawList).
+    antiAliasedFill: bool,
+    /// Tessellation tolerance when using PathBezierCurveTo() without a specific number of segments. Decrease for highly tessellated curves (higher quality, more polygons), increase to reduce quality.
+    curveTessellationTol: f32,
+    /// Maximum error (in pixels) allowed when using AddCircle()/AddCircleFilled() or drawing rounded corner rectangles with no explicit segment count specified. Decrease for higher quality but more geometry.
+    circleTessellationMaxError: f32,
+
+    /// Colors
+    colors: [@typeInfo(Color).@"enum".fields.len][4]f32,
+
+    /// Behaviors
+    /// (It is possible to modify those fields mid-frame if specific behavior need it, unlike e.g. configuration fields in ImGuiIO)
+    /// Delay for IsItemHovered(ImGuiHoveredFlags_Stationary). Time required to consider mouse stationary.
+    hoverStationaryDelay: f32,
+    /// Delay for IsItemHovered(ImGuiHoveredFlags_DelayShort). Usually used along with HoverStationaryDelay.
+    hoverDelayShort: f32,
+    /// Delay for IsItemHovered(ImGuiHoveredFlags_DelayNormal). "
+    hoverDelayNormal: f32,
+    /// Default flags when using IsItemHovered(ImGuiHoveredFlags_ForTooltip) or BeginItemTooltip()/SetItemTooltip() while using mouse.
+    hoverFlagsForTooltipMouse: item.HoveredFlags,
+    /// Default flags when using IsItemHovered(ImGuiHoveredFlags_ForTooltip) or BeginItemTooltip()/SetItemTooltip() while using keyboard/gamepad.
+    hoverFlagsForTooltipNav: item.HoveredFlags,
+
+    pub const Color = enum(u32) {
+        text,
+        textDisabled,
+        /// Background of normal windows
+        windowBg,
+        /// Background of child windows
+        childBg,
+        /// Background of popups, menus, tooltips windows
+        popupBg,
+        border,
+        borderShadow,
+        /// Background of checkbox, radio button, plot, slider, text input
+        frameBg,
+        frameBgHovered,
+        frameBgActive,
+        /// Title bar
+        titleBg,
+        /// Title bar when focused
+        titleBgActive,
+        /// Title bar when collapsed
+        titleBgCollapsed,
+        menuBarBg,
+        scrollbarBg,
+        scrollbarGrab,
+        scrollbarGrabHovered,
+        scrollbarGrabActive,
+        /// Checkbox tick and RadioButton circle
+        checkMark,
+        sliderGrab,
+        sliderGrabActive,
+        button,
+        buttonHovered,
+        buttonActive,
+        /// Header* colors are used for CollapsingHeader, TreeNode, Selectable, MenuItem
+        header,
+        headerHovered,
+        headerActive,
+        separator,
+        separatorHovered,
+        separatorActive,
+        /// Resize grip in lower-right and lower-left corners of windows.
+        resizeGrip,
+        resizeGripHovered,
+        resizeGripActive,
+        /// Tab background, when hovered
+        tabHovered,
+        /// Tab background, when tab-bar is focused & tab is unselected
+        tab,
+        /// Tab background, when tab-bar is focused & tab is selected
+        tabSelected,
+        /// Tab horizontal overline, when tab-bar is focused & tab is selected
+        tabSelectedOverline,
+        /// Tab background, when tab-bar is unfocused & tab is unselected
+        tabDimmed,
+        /// Tab background, when tab-bar is unfocused & tab is selected
+        tabDimmedSelected,
+        ///..horizontal overline, when tab-bar is unfocused & tab is selected
+        tabDimmedSelectedOverline,
+        /// Preview overlay color when about to docking something
+        dockingPreview,
+        /// Background color for empty node (e.g. CentralNode with no window docked into it)
+        dockingEmptyBg,
+        plotLines,
+        plotLinesHovered,
+        plotHistogram,
+        plotHistogramHovered,
+        /// Table header background
+        tableHeaderBg,
+        /// Table outer and header borders (prefer using Alpha=1.0 here)
+        tableBorderStrong,
+        /// Table inner borders (prefer using Alpha=1.0 here)
+        tableBorderLight,
+        /// Table row background (even rows)
+        tableRowBg,
+        /// Table row background (odd rows)
+        tableRowBgAlt,
+        /// Hyperlink color
+        textLink,
+        textSelectedBg,
+        /// Rectangle highlighting a drop target
+        dragDropTarget,
+        /// Color of keyboard/gamepad navigation cursor/rectangle, when visible
+        navCursor,
+        /// Highlight window when using CTRL+TAB
+        navWindowingHighlight,
+        /// Darken/colorize entire screen behind the CTRL+TAB window list, when active
+        navWindowingDimBg,
+        /// Darken/colorize entire screen behind a modal window, when one is active
+        modalWindowDimBg,
+    };
+};
 
 /// ---------------
 /// | Platform IO |

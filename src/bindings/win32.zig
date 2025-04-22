@@ -15,10 +15,14 @@ pub const LONG_PTR = w32.LONG_PTR;
 pub const RECT = w32.RECT;
 pub const BOOL = w32.BOOL;
 pub const FLOAT = w32.FLOAT;
+pub const WCHAR = w32.WCHAR;
 pub const GUID = w32.GUID;
 pub const TRUE = w32.TRUE;
 pub const FALSE = w32.FALSE;
 pub const S_OK = w32.S_OK;
+pub const E_NOINTERFACE = w32.E_NOINTERFACE;
+
+pub const HMONITOR = w32.HANDLE;
 
 pub const PATH_MAX_WIDE = w32.PATH_MAX_WIDE;
 
@@ -121,6 +125,20 @@ pub const IUnknown = extern struct {
 
     pub fn Mixin(comptime T: type) type {
         return struct {
+            pub inline fn QueryInterface(m: *@This(), comptime I: type) !*I {
+                const self: *T = @alignCast(@fieldParentPtr("Unknown", m));
+                const vt: *const IUnknown.VTable = @ptrCast(self.__v);
+                const ctx: *IUnknown = @ptrCast(self);
+                var ptr: ?*I = null;
+                const hr = vt.QueryInterface(ctx, I.IID, @ptrCast(&ptr));
+                switch (hr) {
+                    S_OK => return ptr.?,
+                    E_NOINTERFACE => return error.NoInterface,
+                    else => unreachable,
+                }
+                
+            }
+
             pub inline fn Release(m: *@This()) w32.ULONG {
                 const self: *T = @alignCast(@fieldParentPtr("Unknown", m));
                 const vt: *const IUnknown.VTable = @ptrCast(self.__v);
@@ -131,7 +149,7 @@ pub const IUnknown = extern struct {
     }
 
     pub const VTable = extern struct {
-        QueryInterface: *anyopaque,
+        QueryInterface: *const fn (*IUnknown, GUID, ?*?*anyopaque) callconv(.winapi) HRESULT,
         AddRef: *anyopaque,
         Release: *const fn (*IUnknown) callconv(.winapi) w32.ULONG,
     };

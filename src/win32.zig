@@ -123,6 +123,32 @@ pub fn main() !void {
         &devctx,
     ));
 
+    const current_outputs = blk: {
+        var outputs_al: std.ArrayListUnmanaged(App.DisplaySize) = try .initCapacity(allocator, 6);
+        const dxgidev = try dev.?.Unknown.QueryInterface(dx.IDXGIDevice);
+        defer _ = dxgidev.Unknown.Release();
+        var adapter: ?*dx.IDXGIAdapter = null;
+        try loghresult("Getting DXGI Adapter", dxgidev.Device.GetAdapter(&adapter));
+        defer _ = adapter.?.Unknown.Release();
+        var idx: u32 = 0;
+        var output: ?*dx.IDXGIOutput = null;
+        var output_desc: dx.DXGI_OUTPUT_DESC = undefined;
+        while (adapter.?.Adapter.EnumOutputs(idx, &output) != dx.DXGI_ERROR_NOT_FOUND) : ({
+            idx += 1;
+            if (output) |o| _ = o.Unknown.Release();
+        }) {
+            if (output) |o| {
+                try loghresult("Getting Output Description", o.Output.GetDesc(&output_desc));
+                const coords = output_desc.DesktopCoordinates;
+                const width = coords.right - coords.left;
+                const height = coords.bottom - coords.top;
+                const out = try outputs_al.addOne(allocator);
+                out.* = .{ .width = @intCast(width), .height = @intCast(height) };
+            }
+        }
+        break :blk try outputs_al.toOwnedSlice(allocator);
+    };
+
     var gctx: Context = .{
         .allocator = allocator,
         .mbx = &mbx,
@@ -130,7 +156,7 @@ pub fn main() !void {
         .mainRTV = null,
         .sc = sc.?,
         .dev = dev.?,
-        .app = .init(allocator),
+        .app = try .init(allocator, &mbx.work, current_outputs),
     };
     defer gctx.deinit();
 
@@ -253,10 +279,10 @@ const Context = struct {
         imgui.newFrame();
 
         if (ctx.mbx.gui.receive()) |msg| {
-            ctx.handle_msg(msg);
+            try ctx.handle_msg(msg);
         }
 
-        try ctx.app.update(&ctx.mbx.work);
+        try ctx.app.update();
 
         ctx.devctx.DeviceContext.OMSetRenderTargets(1, &.{ctx.mainRTV.?}, null);
         ctx.devctx.DeviceContext.ClearRenderTargetView(ctx.mainRTV.?, &.{ 0.45, 0.55, 0.60, 1.00 });
@@ -267,10 +293,10 @@ const Context = struct {
         _ = ctx.sc.SwapChain.Present(1, .{});
     }
 
-    fn handle_msg(ctx: *Context, msg: GuiMsg) void {
+    fn handle_msg(ctx: *Context, msg: GuiMsg) !void {
         switch (msg) {
             .noop => {},
-            .appmsg => |appmsg| ctx.app.handle_msg(appmsg),
+            .appmsg => |appmsg| try ctx.app.handle_msg(appmsg),
             .load_texture => |ltxe| {
                 if (ltxe) |ltx| {
                     if (ctx.upload_texture(ltx.width, ltx.height, ltx.buffer)) |img| {
@@ -429,6 +455,9 @@ fn run_worker(allocator: std.mem.Allocator, com: *Mailbox, dbpath: [:0]const u8)
     var db: Db = try .init(dbpath);
     defer db.deinit();
 
+    const monitors = try db.get_monitors(allocator);
+    _ = com.gui.send( .{ .appmsg = .{ .monitors = monitors } } );
+
     while (!com.gui.send(.{ .appmsg = .db_ready })) {
         std.Thread.yield() catch {};
     }
@@ -456,15 +485,26 @@ fn run_worker(allocator: std.mem.Allocator, com: *Mailbox, dbpath: [:0]const u8)
                         std.Thread.yield() catch {};
                     }
                 },
-                .get_monitors => {
-                    const monitors = try db.get_monitors(allocator);
-                    while (!com.gui.send(.{ .appmsg = .{ .monitors = monitors } })) {
-                        std.Thread.yield() catch {};
+                .monitors => |msg| {
+                    switch (msg) {
+                        .delete => |id| {
+                            try db.delete_monitor(id);
+                            _ = com.gui.send(.{ .appmsg = .{ .delete_monitor = id } });
+                        },
+                        .rename => |info| {
+                            try db.rename_monitor(info.id, std.mem.span(info.name[0..].ptr));
+                        },
+                        .new => |info| {
+                            const name = try allocator.dupeZ(u8, std.mem.span(info.name_buf[0..].ptr));
+                            errdefer allocator.free(name);
+                            const newmon = try db.add_monitor(.{
+                                .name = name,
+                                .height = info.height,
+                                .width = info.width,
+                            });
+                            _ = com.gui.send(.{ .appmsg = .{ .new_monitor = newmon } });
+                        },
                     }
-                },
-                .set_monitors => |deltas| {
-                    defer allocator.free(deltas);
-                    try db.update_monitors(deltas);
                 },
                 .quit => {
                     listen = false;

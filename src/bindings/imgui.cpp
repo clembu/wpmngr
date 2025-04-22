@@ -13,6 +13,11 @@ extern "C" {
     {
         ImGui::DestroyContext(ctx);
     }
+
+    ImGuiStyle* CImGuiGetStyle() {
+        return &ImGui::GetStyle();
+    }
+
     void CImGuiNewFrame() {
         ImGui::NewFrame();
     }
@@ -44,6 +49,12 @@ extern "C" {
         ImGui::EndChild();
     }
 
+    // Window utils
+
+    float CImGuiGetWindowDpiScale() {
+        return ImGui::GetWindowDpiScale();
+    }
+
     // Layout
 
     void CImGuiGetContentRegionAvail(float size[2]) {
@@ -71,6 +82,14 @@ extern "C" {
         ImGui::SameLine(offset_from_start_x, spacing);
     }
 
+    void CImGuiNewLine() {
+        ImGui::NewLine();
+    }
+
+    void CImGuiDummy(const float size[2]) {
+        ImGui::Dummy({size[0], size[1]});
+    }
+
     // move content position toward the right, by indent_w, or style.IndentSpacing if indent_w <= 0
     void CImGuiIndent(float indent_w) {
         ImGui::Indent(indent_w);
@@ -80,6 +99,19 @@ extern "C" {
     void CImGuiUnindent(float indent_w) {
         ImGui::Unindent(indent_w);
     }
+
+    void CImGuiBeginGroup() {
+        ImGui::BeginGroup();
+    }
+
+    void CImGuiEndGroup() {
+        ImGui::EndGroup();
+    }
+
+    float CImGuiGetTextLineHeight() { return ImGui::GetTextLineHeight(); }
+    float CImGuiGetTextLineHeightWithSpacing() { return ImGui::GetTextLineHeightWithSpacing(); }
+    float CImGuiGetFrameHeight() { return ImGui::GetFrameHeight(); }
+    float CImGuiGetFrameHeightWithSpacing() { return ImGui::GetFrameHeightWithSpacing(); }
 
     // ID stack/scopes
 
@@ -125,8 +157,27 @@ extern "C" {
         return ImGui::IsItemDeactivated();
     }
 
+
+    void CImGuiGetItemRectSize(float size[2]) {
+        const ImVec2 sz = ImGui::GetItemRectSize();
+        size[0] = sz.x;
+        size[1] = sz.y;
+    }
+
+    void CImGuiCalcTextSize(
+        const char* text,
+        const char* text_end,
+        float size[2],
+        bool hide_text_after_double_hash,
+        float wrap_width
+    ) {
+        const ImVec2 sz = ImGui::CalcTextSize(text, text_end, hide_text_after_double_hash, wrap_width);
+        size[0] = sz.x;
+        size[1] = sz.y;
+    }
+
     // Mouse Input
-    
+
     // did mouse button clicked? (went from !Down to Down). Same as GetMouseClickedCount() == 1.
     bool CImGuiIsMouseClicked(ImGuiMouseButton button, bool repeat) {
         return ImGui::IsMouseClicked(button, repeat);
@@ -312,6 +363,59 @@ extern "C" {
         return ImGui::InputText(label, buf, buf_size, flags);
     }
 
+
+    // Widgets: Menus
+
+    bool CImGuiBeginMenuBar() {
+        return ImGui::BeginMenuBar();
+    }
+
+    void CImGuiEndMenuBar() {
+        ImGui::EndMenuBar();
+    }
+
+    bool CImGuiMenuItem(
+        const char* label,
+        const char* shortcut,
+        bool selected,
+        bool enabled
+    ) {
+        return ImGui::MenuItem(label, shortcut, selected, enabled);
+    }
+
+    bool CImGuiMenuItemToggle(
+        const char* label,
+        const char* shortcut,
+        bool* p_selected,
+        bool enabled
+    ) {
+        return ImGui::MenuItem(label, shortcut, p_selected, enabled);
+    }
+
+    // Popups
+
+    bool CImGuiBeginPopup(const char* str_id, ImGuiWindowFlags flags) {
+        return ImGui::BeginPopup(str_id, flags);
+    }
+    bool CImGuiBeginPopupModal(
+        const char* name,
+        bool* p_open,
+        ImGuiWindowFlags flags
+    ) {
+        return ImGui::BeginPopupModal(name, p_open, flags);
+    }
+    void CImGuiEndPopup() {
+        ImGui::EndPopup();
+    }
+
+    void CImGuiOpenPopup(const char* str_id, ImGuiPopupFlags popup_flags) {
+        ImGui::OpenPopup(str_id, popup_flags);
+    }
+
+    void CImGuiCloseCurrentPopup() {
+        ImGui::CloseCurrentPopup();
+    }
+
     // PlatformIO
 
     void* CImGuiPlatformIOGetRenderState() {
@@ -365,6 +469,16 @@ extern "C" {
         float thickness
     ) {
         draw_list->AddQuad({p1[0],p1[1]}, {p2[0],p2[1]}, {p3[0],p3[1]}, {p4[0],p4[1]}, col, thickness);
+    }
+
+    void CImGuiDrawListAddText(
+        ImDrawList* draw_list,
+        const float pos[2],
+        ImU32 col,
+        const char* text_begin,
+        const char* text_end
+    ) {
+        draw_list->AddText({pos[0],pos[1]}, col, text_begin, text_end);
     }
 
     void CImGuiDrawListAddImageQuad(

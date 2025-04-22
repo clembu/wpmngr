@@ -44,58 +44,64 @@ pub fn get_monitors(self: *@This(), allocator: std.mem.Allocator) ![]Monitor {
     return result;
 }
 
-pub fn update_monitors(self: *@This(), deltas: []Monitor.Delta) !void {
+pub fn delete_monitor(self: *@This(), id: u64) !void {
     try self.begin();
     var del_stmt = try self.cnx.prepare("DELETE FROM monitors WHERE ID = :id", .{});
     defer del_stmt.finalize();
+    try del_stmt.bind(.{ .id = id });
+    _ = try del_stmt.step();
+    del_stmt.reset();
+    try self.commit();
+}
+
+pub fn rename_monitor(self: *@This(), id: u64, name: [:0]const u8) !void {
+    try self.begin();
     var update_stmt = try self.cnx.prepare(
         \\ UPDATE monitors
         \\ SET name = :name
-        \\   , width = :width
-        \\   , height = :height
         \\ WHERE monitors.ID = :id
     , .{});
     defer update_stmt.finalize();
+    try update_stmt.bind(.{
+        .id = id,
+        .name = name,
+    });
+    _ = try update_stmt.step();
+    update_stmt.reset();
+    try self.commit();
+}
+
+pub fn add_monitor(self: *@This(), monitor: Monitor.NewData) !Monitor {
+    try self.begin();
     var insert_stmt = try self.cnx.prepare(
         \\ INSERT INTO monitors
-        \\ ( name, width, height)
+        \\ (name, width, height)
         \\ VALUES
         \\ (:name, :width, :height)
+        \\ RETURNING ID;
     , .{});
     defer insert_stmt.finalize();
-    for (deltas) |delta| {
-        if (delta.id == null) {
-            std.log.debug("Stepping insert statement", .{});
-            try insert_stmt.bind(.{
-                .name = std.mem.span(delta.name_buf[0..].ptr),
-                .width = delta.width,
-                .height = delta.height,
-            });
-            _ = try insert_stmt.step();
-            insert_stmt.reset();
-        } else if (delta.to_delete) {
-            std.log.debug("Stepping delete statement (id = {?d})", .{delta.id});
-            try del_stmt.bind(.{ .id = delta.id.? });
-            _ = try del_stmt.step();
-            del_stmt.reset();
-        } else {
-            std.log.debug("Stepping update statement (id = {?d})", .{delta.id});
-            try update_stmt.bind(.{
-                .id = delta.id.?,
-                .name = std.mem.span(delta.name_buf[0..].ptr),
-                .width = delta.width,
-                .height = delta.height,
-            });
-            _ = try update_stmt.step();
-            update_stmt.reset();
-        }
-    }
+    try insert_stmt.bind(.{
+        .name = monitor.name,
+        .width = monitor.width,
+        .height = monitor.height,
+    });
+    const row = try insert_stmt.step();
+    const id = row.?.get_int(0, u64);
+    insert_stmt.reset();
+
     try self.commit();
+    return .{
+        .id = id,
+        .name = monitor.name,
+        .width = monitor.width,
+        .height = monitor.height,
+    };
 }
 
 pub const Monitor = struct {
     id: u64,
-    name: [:0]u8,
+    name: [:0]const u8,
     width: u32,
     height: u32,
 
@@ -103,11 +109,9 @@ pub const Monitor = struct {
         allocator.free(self.name);
     }
 
-    pub const Delta = struct {
-        id: ?u64,
-        name_buf: [255:0]u8,
+    pub const NewData = struct {
+        name: [:0]const u8,
         width: u32,
         height: u32,
-        to_delete: bool,
     };
 };
