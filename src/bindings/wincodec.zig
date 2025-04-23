@@ -48,29 +48,37 @@ pub const IWICImagingFactory = extern struct {
                     read: bool = false,
                 },
                 options: WICDecodeOptions,
-                decoder: *?*IWICBitmapDecoder,
-            ) w32.HRESULT {
+            ) !*IWICBitmapDecoder {
                 const self: *T = @alignCast(@fieldParentPtr("ImagingFactory", m));
                 const vt: *const IWICImagingFactory.VTable = @ptrCast(self.__v);
                 const ctx: *IWICImagingFactory = @ptrCast(self);
-                return vt.CreateDecoderFromFilename(
+                const decoder: ?*IWICBitmapDecoder = null;
+                const hr = vt.CreateDecoderFromFilename(
                     ctx,
                     filename,
                     vendor,
                     @bitCast(access),
                     options,
-                    decoder,
+                    &decoder,
                 );
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.CreateDecoder;
+                }
+                return decoder.?;
             }
 
             pub fn CreateFormatConverter(
                 m: *@This(),
-                converter: *?*IWICFormatConverter,
-            ) w32.HRESULT {
+            ) !*IWICFormatConverter {
                 const self: *T = @alignCast(@fieldParentPtr("ImagingFactory", m));
                 const vt: *const IWICImagingFactory.VTable = @ptrCast(self.__v);
                 const ctx: *IWICImagingFactory = @ptrCast(self);
-                return vt.CreateFormatConverter(ctx, converter);
+                var converter: ?*IWICFormatConverter = null;
+                const hr = vt.CreateFormatConverter(ctx, &converter);
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.CreateFormatConverter;
+                }
+                return converter.?;
             }
         };
     }
@@ -116,11 +124,16 @@ pub const IWICBitmapDecoder = extern struct {
 
     pub fn Mixin(comptime T: type) type {
         return struct {
-            pub fn GetFrame(m: *@This(), idx: u32, frame: *?*IWICBitmapFrameDecode) w32.HRESULT {
+            pub fn GetFrame(m: *@This(), idx: u32) !*IWICBitmapFrameDecode {
                 const self: *T = @alignCast(@fieldParentPtr("BitmapDecoder", m));
                 const vt: *const IWICBitmapDecoder.VTable = @ptrCast(self.__v);
                 const ctx: *IWICBitmapDecoder = @ptrCast(self);
-                return vt.GetFrame(ctx, idx, frame);
+                var frame: ?*IWICBitmapFrameDecode = null;
+                const hr = vt.GetFrame(ctx, idx, &frame);
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.GetDecoderFrame;
+                }
+                return frame.?;
             }
         };
     }
@@ -163,11 +176,17 @@ pub const IWICBitmapSource = extern struct {
 
     pub fn Mixin(comptime T: type) type {
         return struct {
-            pub fn GetSize(m: *@This(), width: *w32.UINT, height: *w32.UINT) w32.HRESULT {
+            pub fn GetSize(m: *@This()) !struct { width: u32, height: u32 } {
                 const self: *T = @alignCast(@fieldParentPtr("BitmapSource", m));
                 const vt: *const IWICBitmapSource.VTable = @ptrCast(self.__v);
                 const ctx: *IWICBitmapSource = @ptrCast(self);
-                return vt.GetSize(ctx, width, height);
+                var width: u32 = undefined;
+                var height: u32 = undefined;
+                const hr = vt.GetSize(ctx, &width, &height);
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.GetSize;
+                }
+                return .{ .width = width, .height = height };
             }
 
             pub fn CopyPixels(
@@ -175,11 +194,14 @@ pub const IWICBitmapSource = extern struct {
                 prc: ?*const WICRect,
                 cbStride: w32.UINT,
                 pbBuffer: []u8,
-            ) w32.HRESULT {
+            ) !void {
                 const self: *T = @alignCast(@fieldParentPtr("BitmapSource", m));
                 const vt: *const IWICBitmapSource.VTable = @ptrCast(self.__v);
                 const ctx: *IWICBitmapSource = @ptrCast(self);
-                return vt.CopyPixels(ctx, prc, cbStride, @intCast(pbBuffer.len), pbBuffer.ptr);
+                const hr = vt.CopyPixels(ctx, prc, cbStride, @intCast(pbBuffer.len), pbBuffer.ptr);
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.CopyPixels;
+                }
             }
         };
     }
@@ -213,11 +235,11 @@ pub const IWICFormatConverter = extern struct {
                 pIPalette: ?*anyopaque,
                 alphaThresholdPercent: f64,
                 paletteTranslate: WICBitmapPaletteType,
-            ) w32.HRESULT {
+            ) !void {
                 const self: *T = @alignCast(@fieldParentPtr("FormatConverter", m));
                 const vt: *const IWICFormatConverter.VTable = @ptrCast(self.__v);
                 const ctx: *IWICFormatConverter = @ptrCast(self);
-                return vt.Initialize(
+                const hr = vt.Initialize(
                     ctx,
                     pISource,
                     dstFormat,
@@ -226,6 +248,9 @@ pub const IWICFormatConverter = extern struct {
                     alphaThresholdPercent,
                     paletteTranslate,
                 );
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.FormatConverterInitialize;
+                }
             }
         };
     }

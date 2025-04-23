@@ -2,8 +2,50 @@ const w32 = @import("win32.zig");
 
 pub const D3D11_SDK_VERSION = 7;
 
+pub const DeviceAndSwapChain = struct {
+    *IDXGISwapChain,
+    *ID3D11Device,
+    *ID3D11DeviceContext,
+};
+
+pub inline fn createDeviceAndSwapChain(desc: DXGI_SWAP_CHAIN_DESC, opts: struct {
+    adapter: ?*IDXGIAdapter = null,
+    driver_type: D3D_DRIVER_TYPE = .UNKNOWN,
+    software: ?w32.HMODULE = null,
+    flags: D3D11_CREATE_DEVICE_FLAG = .{},
+    feature_levels: ?[]const D3D_FEATURE_LEVEL = null,
+}) !DeviceAndSwapChain {
+    var sc: ?*IDXGISwapChain = null;
+    var dev: ?*ID3D11Device = null;
+    var devctx: ?*ID3D11DeviceContext = null;
+
+    const feat_ptr, const feat_len = if (opts.feature_levels) |slice|
+        .{ slice.ptr, slice.len }
+    else
+        .{ null, 0 };
+
+    const hr = D3D11CreateDeviceAndSwapChain(
+        opts.adapter,
+        opts.driver_type,
+        opts.software,
+        opts.flags,
+        feat_ptr,
+        feat_len,
+        D3D11_SDK_VERSION,
+        &desc,
+        &sc,
+        &dev,
+        null,
+        &devctx,
+    );
+    if (!w32.SUCCEEDED(hr)) {
+        return error.CreateDeviceError;
+    }
+    return .{ sc.?, dev.?, devctx.? };
+}
+
 pub extern "d3d11" fn D3D11CreateDeviceAndSwapChain(
-    pAdapter: ?*anyopaque, // IDXGIAdapter
+    pAdapter: ?*IDXGIAdapter,
     DriverType: D3D_DRIVER_TYPE,
     Software: ?w32.HMODULE,
     Flags: D3D11_CREATE_DEVICE_FLAG,
@@ -746,11 +788,22 @@ pub const IDXGISwapChain = extern struct {
                 return vt.Present(ctx, sync_interval, flags);
             }
 
-            pub fn GetBuffer(m: *@This(), index: u32, guid: *const w32.GUID, surface: *?*anyopaque) w32.HRESULT {
+            /// This assumes that the given Buffer type has a valid `IID`
+            /// associated.
+            pub fn GetBuffer(
+                m: *@This(),
+                comptime Buffer: type,
+                index: u32,
+            ) !*Buffer {
                 const self: *T = @alignCast(@fieldParentPtr("SwapChain", m));
                 const vt: *const IDXGISwapChain.VTable = @ptrCast(self.__v);
                 const ctx: *IDXGISwapChain = @ptrCast(self);
-                return vt.GetBuffer(ctx, index, guid, surface);
+                var buf: ?*Buffer = null;
+                const hr = vt.GetBuffer(ctx, index, &Buffer.IID, @ptrCast(&buf));
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.GetSwapChainBuffer;
+                }
+                return buf.?;
             }
 
             pub fn ResizeBuffers(
@@ -826,58 +879,78 @@ pub const ID3D11Device = extern struct {
                 m: *@This(),
                 pResource: ?*ID3D11Resource,
                 pDesc: ?*const anyopaque,
-                ppSRView: ?*?*ID3D11RenderTargetView,
-            ) w32.HRESULT {
+            ) !*ID3D11RenderTargetView {
                 const self: *T = @alignCast(@fieldParentPtr("Device", m));
                 const vt: *const ID3D11Device.VTable = @ptrCast(self.__v);
                 const ctx: *ID3D11Device = @ptrCast(self);
-                return vt.CreateRenderTargetView(ctx, pResource, pDesc, ppSRView);
+                var rtv: ?*ID3D11RenderTargetView = null;
+                const hr = vt.CreateRenderTargetView(ctx, pResource, pDesc, &rtv);
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.CreateRenderTargetView;
+                }
+                return rtv.?;
             }
 
             pub fn CreateTexture2D(
                 m: *@This(),
                 pDesc: *const D3D11_TEXTURE2D_DESC,
                 pInitialData: ?*const D3D11_SUBRESOURCE_DATA,
-                ppTextureData: *?*ID3D11Texture2D,
-            ) w32.HRESULT {
+            ) !*ID3D11Texture2D {
                 const self: *T = @alignCast(@fieldParentPtr("Device", m));
                 const vt: *const ID3D11Device.VTable = @ptrCast(self.__v);
                 const ctx: *ID3D11Device = @ptrCast(self);
-                return vt.CreateTexture2D(ctx, pDesc, pInitialData, ppTextureData);
+                var tx: ?*ID3D11Texture2D = null;
+                const hr = vt.CreateTexture2D(ctx, pDesc, pInitialData, &tx);
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.CreateTexture2D;
+                }
+                return tx.?;
             }
 
             pub fn CreateShaderResourceView(
                 m: *@This(),
                 pResource: *const ID3D11Resource,
                 pDesc: ?*const D3D11_SHADER_RESOURCE_VIEW_DESC,
-                ppSRView: *?*ID3D11ShaderResourceView,
-            ) w32.HRESULT {
+            ) !*ID3D11ShaderResourceView {
                 const self: *T = @alignCast(@fieldParentPtr("Device", m));
                 const vt: *const ID3D11Device.VTable = @ptrCast(self.__v);
                 const ctx: *ID3D11Device = @ptrCast(self);
-                return vt.CreateShaderResourceView(ctx, pResource, pDesc, ppSRView);
+                var srv: ?*ID3D11ShaderResourceView = null;
+                const hr = vt.CreateShaderResourceView(ctx, pResource, pDesc, &srv);
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.CreateShaderResourceView;
+                }
+                return srv.?;
             }
 
             pub fn CreateSamplerState(
                 m: *@This(),
                 pDesc: *const D3D11_SAMPLER_DESC,
-                ppSamplerState: ?*?*ID3D11SamplerState,
-            ) w32.HRESULT {
+            ) !*ID3D11SamplerState {
                 const self: *T = @alignCast(@fieldParentPtr("Device", m));
                 const vt: *const ID3D11Device.VTable = @ptrCast(self.__v);
                 const ctx: *ID3D11Device = @ptrCast(self);
-                return vt.CreateSamplerState(ctx, pDesc, ppSamplerState);
+                var sampler: ?*ID3D11SamplerState = null;
+                const hr = vt.CreateSamplerState(ctx, pDesc, &sampler);
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.CreateSampler;
+                }
+                return hr.?;
             }
 
             pub fn CheckFormatSupport(
                 m: *@This(),
                 format: DXGI_FORMAT,
-                pFormatSupport: *D3D11_FORMAT_SUPPORT,
-            ) w32.HRESULT {
+            ) !D3D11_FORMAT_SUPPORT {
                 const self: *T = @alignCast(@fieldParentPtr("Device", m));
                 const vt: *const ID3D11Device.VTable = @ptrCast(self.__v);
                 const ctx: *ID3D11Device = @ptrCast(self);
-                return vt.CheckFormatSupport(ctx, format, pFormatSupport);
+                var res: *D3D11_FORMAT_SUPPORT = undefined;
+                const hr = vt.CheckFormatSupport(ctx, format, &res);
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.CheckFormatSupport;
+                }
+                return res;
             }
 
             pub fn CreateBlendState(

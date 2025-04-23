@@ -1,7 +1,9 @@
 var tmp_buf: ?std.ArrayList(u8) = null;
 
 const std = @import("std");
-pub const backend = switch (@import("builtin").target.os.tag) {
+const builtin = @import("builtin");
+
+pub const backend = switch (builtin.target.os.tag) {
     .windows => @import("imgui_win32_dx11.zig"),
     else => .{},
 };
@@ -31,20 +33,23 @@ pub const Cond = enum(c_int) {
 
 pub const Context = *opaque {};
 
-/// - Each context create its own ImFontAtlas by default.
-///   You may instance one yourself and pass it to CreateContext() to share a font atlas between contexts.
-/// - DLL users: heaps and globals are not shared across DLL boundaries!
-///   You will need to call SetCurrentContext() + SetAllocatorFunctions() for each static/DLL boundary you are calling from.
-///   Read "Context and Memory Allocators" section of imgui.cpp for details.
-pub fn init(allocator: std.mem.Allocator) Context {
+/// Creates the Dear ImGui context.
+/// The allocator is used to manage a working buffer for text formatting
+pub fn init(allocator: std.mem.Allocator, args: backend.InitArgs) !Context {
     tmp_buf = .init(allocator);
     // NOTE(smugs): Default font atlas for now
-    return CImGuiCreateContext(null);
+    const ctx = CImGuiCreateContext(null);
+    errdefer CImGuiDestroyContext(ctx);
+
+    try backend.init(args);
+
+    return ctx;
 }
 extern fn CImGuiCreateContext(?*anyopaque) Context;
 
 /// if given null, destroy current context
 pub fn deinit(ctx: ?Context) void {
+    backend.deinit();
     tmp_buf.?.deinit();
     CImGuiDestroyContext(ctx);
 }
@@ -60,12 +65,14 @@ pub fn getStyle() *Style {
 extern fn CImGuiGetStyle() *Style;
 
 pub fn newFrame() void {
+    backend.newFrame();
     CImGuiNewFrame();
 }
 extern fn CImGuiNewFrame() void;
 
 pub fn render() void {
     CImGuiRender();
+    backend.render(getDrawData());
 }
 extern fn CImGuiRender() void;
 
