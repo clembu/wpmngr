@@ -2,6 +2,7 @@ const std = @import("std");
 const dx = @import("../bindings/directx.zig");
 const w32 = @import("../bindings/win32.zig");
 const imgui = @import("../bindings/imgui.zig");
+const root = @import("root");
 
 dev: *dx.ID3D11Device,
 devctx: *dx.ID3D11DeviceContext,
@@ -60,13 +61,41 @@ pub fn init(allocator: std.mem.Allocator, hwnd: w32.HWND) !@This() {
     };
 }
 
-pub fn deinit(self: *@This()) void {
+pub fn deinit(self: *const @This()) void {
     imgui.deinit(self.imctx);
     _ = self.mainRTV.Unknown.Release();
     _ = self.sc.Unknown.Release();
     _ = self.devctx.Unknown.Release();
     _ = self.dev.Unknown.Release();
 }
+
+pub fn getDisplays(self: *const @This(), allocator: std.mem.Allocator) ![]root.app.monitors.Display {
+    var outputs_al: std.ArrayListUnmanaged(root.app.monitors.Display) =
+        try .initCapacity(allocator, 6);
+    errdefer outputs_al.deinit(allocator);
+    const dxgidev = try self.dev.Unknown.QueryInterface(dx.IDXGIDevice);
+    defer _ = dxgidev.Unknown.Release();
+
+    const adapter = try dxgidev.Device.GetAdapter();
+    defer _ = adapter.Unknown.Release();
+    var idx: u32 = 0;
+    var output: ?*dx.IDXGIOutput = null;
+    while (adapter.Adapter.EnumOutputs(idx, &output) != dx.DXGI_ERROR_NOT_FOUND) : ({
+        idx += 1;
+        if (output) |o| _ = o.Unknown.Release();
+    }) {
+        if (output) |o| {
+            const output_desc = try o.Output.GetDesc();
+            const coords = output_desc.DesktopCoordinates;
+            const width = coords.right - coords.left;
+            const height = coords.bottom - coords.top;
+            const out = try outputs_al.addOne(allocator);
+            out.* = .{ .width = @intCast(width), .height = @intCast(height) };
+        }
+    }
+    return try outputs_al.toOwnedSlice(allocator);
+}
+
 
 // Frees `buffer` with the runtime's allocator.
 // fn upload_texture(self: *@This(), width: u32, height: u32, buffer: []const u8) !Image {

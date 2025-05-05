@@ -1,4 +1,5 @@
-const w32 = @import("std").os.windows;
+const std = @import("std");
+const w32 = std.os.windows;
 
 pub const UINT = w32.UINT;
 pub const LPCSTR = w32.LPCSTR;
@@ -63,23 +64,23 @@ pub const MSG = extern struct {
 };
 
 pub const WinStyle = packed struct(u32) {
-    _: u16 = 0,
-    maximize_box: bool = false,
-    minimize_box: bool = false,
-    thick_frame: bool = false,
-    sys_menu: bool = false,
-    scroll_h: bool = false,
-    scroll_v: bool = false,
-    dialog_frame: bool = false,
-    border: bool = false,
-    maximize: bool = false,
-    clip_children: bool = false,
-    clip_siblings: bool = false,
-    disabled: bool = false,
-    visible: bool = false,
-    minimize: bool = false,
-    child: bool = false,
-    popup: bool = false,
+    _: u16 = 0,                  // WS_OVERLAPPED   0x00000000
+    maximize_box: bool = false,  // WS_MAXIMIZEBOX  0x00010000
+    minimize_box: bool = false,  // WS_MINIMIZEBOX  0x00020000
+    thick_frame: bool = false,   // WS_THICKFRAME   0x00040000
+    sys_menu: bool = false,      // WS_SYSMENU      0x00080000
+    scroll_h: bool = false,      // WS_HSCROLL      0x00100000
+    scroll_v: bool = false,      // WS_VSCROLL      0x00200000
+    dialog_frame: bool = false,  // WS_DLGFRAME     0x00400000
+    border: bool = false,        // WS_BORDER       0x00800000
+    maximize: bool = false,      // WS_MAXIMIZE     0x01000000
+    clip_children: bool = false, // WS_CLIPCHILDREN 0x02000000
+    clip_siblings: bool = false, // WS_CLIPSIBLINGS 0x04000000
+    disabled: bool = false,      // WS_DISABLED     0x08000000
+    visible: bool = false,       // WS_VISIBLE      0x10000000
+    minimize: bool = false,      // WS_MINIMIZE     0x20000000
+    child: bool = false,         // WS_CHILD        0x40000000
+    popup: bool = false,         // WS_POPUP        0x80000000
 
     pub const overlapped_window: WinStyle = .{
         .border = true,

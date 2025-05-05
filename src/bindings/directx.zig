@@ -689,11 +689,16 @@ pub const IDXGIDevice = extern struct {
 
     pub fn Mixin(comptime T: type) type {
         return struct {
-            pub fn GetAdapter(m: *@This(), adapter: *?*IDXGIAdapter) w32.HRESULT {
+            pub fn GetAdapter(m: *@This()) !*IDXGIAdapter {
                 const self: *T = @alignCast(@fieldParentPtr("Device", m));
                 const vt: *const IDXGIDevice.VTable = @ptrCast(self.__v);
                 const ctx: *IDXGIDevice = @ptrCast(self);
-                return vt.GetAdapter(ctx, adapter);
+                var adapter: ?*IDXGIAdapter = null;
+                const hr = vt.GetAdapter(ctx, &adapter);
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.GetAdapter;
+                }
+                return adapter.?;
             }
         };
     }
@@ -745,11 +750,16 @@ pub const IDXGIOutput = extern struct {
 
     pub fn Mixin(comptime T: type) type {
         return struct {
-            pub fn GetDesc(m: *@This(), ptr: *DXGI_OUTPUT_DESC) w32.HRESULT {
+            pub fn GetDesc(m: *@This()) !DXGI_OUTPUT_DESC {
                 const self: *T = @alignCast(@fieldParentPtr("Output", m));
                 const vt: *const IDXGIOutput.VTable = @ptrCast(self.__v);
                 const ctx: *IDXGIOutput = @ptrCast(self);
-                return vt.GetDesc(ctx, ptr);
+                var desc: DXGI_OUTPUT_DESC = undefined;
+                const hr = vt.GetDesc(ctx, &desc);
+                if (!w32.SUCCEEDED(hr)) {
+                    return error.GetDXGIOutputDesc;
+                }
+                return desc;
             }
         };
     }

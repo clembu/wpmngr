@@ -21,15 +21,20 @@ pub fn init(params: root.Gui.CreationParameters) !@This() {
         .hCursor = w32.LoadCursorA(null, w32.IDC_ARROW),
         .lpszClassName = MAIN_WINDOW_CLASS,
     });
+    const style = w32.WinStyle.overlapped_window.with(.{
+        .visible = true,
+        .maximize = true,
+        .maximize_box = true,
+    });
     const hwnd = try w32.createWindow(MAIN_WINDOW_CLASS, "WPMNGR", .{
-        .style = w32.WinStyle.overlapped_window.with(.{ .visible = true, .maximize = true }),
+        .style = style,
         .hInstance = hinst,
     });
     errdefer w32.destroyWindow(hwnd);
 
     const rt: root.GuiRT = try .init(params.allocator, hwnd);
     errdefer rt.deinit();
-    const gui: root.Gui = .init(rt, params);
+    const gui: root.Gui = try .init(rt, params);
 
     return .{
         .hwnd = hwnd,

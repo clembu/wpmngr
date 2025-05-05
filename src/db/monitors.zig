@@ -20,60 +20,62 @@ pub fn get_all(db: *Db, allocator: std.mem.Allocator) ![]Monitor {
     return result;
 }
 
-pub fn delete(db: *Db, id: ID) !void {
+/// Update monitors according to the given deltas.
+/// Returns a newly allocated slice with all monitors, including those
+/// unchanged.
+pub fn update(db: *Db, allocator: std.mem.Allocator, deltas: Deltas) ![]Monitor {
     try db.begin();
-    var del_stmt = try db.cnx.prepare("DELETE FROM monitors WHERE ID = :id", .{});
-    defer del_stmt.finalize();
-    try del_stmt.bind(.{ .id = id });
-    _ = try del_stmt.step();
-    del_stmt.reset();
-    try db.commit();
-}
 
-pub fn rename(db: *Db, id: u64, name: [:0]const u8) !void {
-    try db.begin();
-    var update_stmt = try db.cnx.prepare(
-        \\ UPDATE monitors
-        \\ SET name = :name
-        \\ WHERE monitors.ID = :id
-    , .{});
-    defer update_stmt.finalize();
-    try update_stmt.bind(.{
-        .id = id,
-        .name = name,
-    });
-    _ = try update_stmt.step();
-    update_stmt.reset();
-    try db.commit();
-}
+    {
+        var del_stmt = try db.cnx.prepare(
+            \\ DELETE FROM monitors
+            \\ WHERE ID = :id
+        , .{});
+        defer del_stmt.finalize();
+        for (deltas.delete) |id_to_delete| {
+            try del_stmt.bind(.{ .id = id_to_delete });
+            _ = try del_stmt.step();
+            del_stmt.reset();
+        }
+    }
 
-/// Ownership of the name slice is transferred to the returned Monitor,
-/// unless the call errors.
-pub fn add_one(self: *@This(), monitor: NewData) !Monitor {
-    try self.begin();
-    var insert_stmt = try self.cnx.prepare(
-        \\ INSERT INTO monitors
-        \\ (name, width, height)
-        \\ VALUES
-        \\ (:name, :width, :height)
-        \\ RETURNING ID;
-    , .{});
-    defer insert_stmt.finalize();
-    try insert_stmt.bind(.{
-        .name = monitor.name,
-        .width = monitor.width,
-        .height = monitor.height,
-    });
-    const row = try insert_stmt.step();
-    const id = row.?.get_int(0, u64);
-    insert_stmt.reset();
-    try self.commit();
-    return .{
-        .id = id,
-        .name = monitor.name,
-        .width = monitor.width,
-        .height = monitor.height,
-    };
+    {
+        var update_stmt = try db.cnx.prepare(
+            \\ UPDATE monitors
+            \\ SET name = :name
+            \\ WHERE monitors.ID = :id
+        , .{});
+        defer update_stmt.finalize();
+        for (deltas.rename) |delta| {
+            try update_stmt.bind(.{
+                .id = delta.id,
+                .name = delta.name,
+            });
+            _ = try update_stmt.step();
+            update_stmt.reset();
+        }
+    }
+
+    {
+        var insert_stmt = try db.cnx.prepare(
+            \\ INSERT INTO monitors
+            \\ (name, width, height)
+            \\ VALUES
+            \\ (:name, :width, :height)
+        , .{});
+        defer insert_stmt.finalize();
+        for (deltas.new) |monitor| {
+            try insert_stmt.bind(.{
+                .name = monitor.name,
+                .width = monitor.width,
+                .height = monitor.height,
+            });
+            insert_stmt.reset();
+        }
+    }
+
+    try db.commit();
+    return get_all(db, allocator);
 }
 
 pub const ID = u64;
@@ -82,6 +84,17 @@ pub const Monitor = struct {
     id: ID,
     width: u32,
     height: u32,
+    name: [:0]const u8,
+};
+
+pub const Deltas = struct {
+    new: []NewData,
+    delete: []ID,
+    rename: []RenameDelta,
+};
+
+pub const RenameDelta = struct {
+    id: ID,
     name: [:0]const u8,
 };
 

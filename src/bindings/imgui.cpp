@@ -55,6 +55,23 @@ extern "C" {
         return ImGui::GetWindowDpiScale();
     }
 
+    // Windows Scrolling
+
+    void CImGuiSetScrollHereX(float center_x_ratio) {
+        ImGui::SetScrollHereX(center_x_ratio);
+    }
+    void CImGuiSetScrollHereY(float center_y_ratio) {
+        ImGui::SetScrollHereY(center_y_ratio);
+    }
+
+    // Parameters stacks (current window)
+    void CImGuiPushItemWidth(float item_width) {
+        ImGui::PushItemWidth(item_width);
+    }
+    void CImGuiPopItemWidth() {
+        ImGui::PopItemWidth();
+    }
+
     // Layout
 
     void CImGuiGetContentRegionAvail(float size[2]) {
@@ -84,6 +101,10 @@ extern "C" {
 
     void CImGuiNewLine() {
         ImGui::NewLine();
+    }
+
+    void CImGuiSpacing() {
+        ImGui::Spacing();
     }
 
     void CImGuiDummy(const float size[2]) {
@@ -138,12 +159,19 @@ extern "C" {
         ImGui::SetNextWindowDockID(dock_id, cond);
     }
 
+    // Focus, Activation
+
+    void CImGuiSetItemDefaultFocus() {
+        ImGui::SetItemDefaultFocus();
+    }
+
+    // Item/Widgets Utilities and Query Functions
+    
     // is the last item hovered? (and usable, aka not blocked by a popup, etc.). See ImGuiHoveredFlags for more options.
     bool CImGuiIsItemHovered(ImGuiHoveredFlags flags) {
         return ImGui::IsItemHovered(flags);
     }
 
-    // Item/Widgets Utilities and Query Functions
     bool CImGuiIsItemActive() {
         return ImGui::IsItemActive();
     }
@@ -274,6 +302,9 @@ extern "C" {
         ImGui::ProgressBar(-speed * ImGui::GetTime(), {size[0], size[1]}, overlay);
     }
 
+
+    void CImGuiBullet() { ImGui::Bullet(); }
+
     // Images
 
     void CImGuiImage(
@@ -328,28 +359,17 @@ extern "C" {
 
     // Sliders
 
-    bool CImGuiDragFloat(
+    bool CImGuiDragScalar(
         const char* label,
-        float* v,
+        ImGuiDataType data_type,
+        void* v,
         float v_speed,
-        float v_min,
-        float v_max,
+        const void* v_min,
+        const void* v_max,
         const char* format,
         ImGuiSliderFlags flags
     ) {
-        return ImGui::DragFloat(label, v, v_speed, v_min, v_max, format, flags);
-    }
-                                        
-    bool CImGuiDragInt(
-        const char* label,
-        int* v,
-        float v_speed,
-        int v_min,
-        int v_max,
-        const char* format,
-        ImGuiSliderFlags flags
-    ) {
-        return ImGui::DragInt(label, v, v_speed, v_min, v_max, format, flags);
+        return ImGui::DragScalar(label, data_type, v, v_speed, v_min, v_max, format, flags);
     }
 
     // Text Inputs
@@ -374,6 +394,14 @@ extern "C" {
         ImGui::EndMenuBar();
     }
 
+    bool CImGuiBeginMenu(const char* label, bool enabled) {
+        return ImGui::BeginMenu(label, enabled);
+    }
+
+    void CImGuiEndMenu() {
+        ImGui::EndMenu();
+    }
+
     bool CImGuiMenuItem(
         const char* label,
         const char* shortcut,
@@ -390,6 +418,20 @@ extern "C" {
         bool enabled
     ) {
         return ImGui::MenuItem(label, shortcut, p_selected, enabled);
+    }
+
+    // Tooltips
+
+    bool CImGuiBeginTooltip() {
+        return ImGui::BeginTooltip();
+    }
+
+    void CImGuiEndTooltip() {
+        ImGui::EndTooltip();
+    }
+
+    bool CImGuiBeginItemTooltip() {
+        return ImGui::BeginItemTooltip();
     }
 
     // Popups
@@ -414,6 +456,10 @@ extern "C" {
 
     void CImGuiCloseCurrentPopup() {
         ImGui::CloseCurrentPopup();
+    }
+
+    bool CImGuiBeginPopupContextItem(const char* str_id, ImGuiPopupFlags popup_flags) {
+        return ImGui::BeginPopupContextItem(str_id, popup_flags);
     }
 
     // PlatformIO
