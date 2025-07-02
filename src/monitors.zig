@@ -97,9 +97,11 @@ pub const ListWindow = struct {
         allocator: std.mem.Allocator,
         displays: []Display,
         mbx: *root.Mailbox,
-    ) !void {
+    ) !bool {
         defer imgui.window.end();
-        if (!imgui.window.begin("Monitors", .{ .flags = .{ .MenuBar = true } })) return;
+        var open = true;
+        if (!imgui.window.begin("Monitors", .{ .open = &open, .flags = .{ .MenuBar = true } }))
+            return open;
 
         var added: ?usize = null;
         menu: {
@@ -499,6 +501,7 @@ pub const ListWindow = struct {
                 }
             }
         }
+        return open;
     }
 
     pub const draw = master_detail;

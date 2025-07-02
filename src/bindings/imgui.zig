@@ -919,6 +919,20 @@ pub const selectable = struct {
 /// | Widgets: Menus |
 /// ------------------
 pub const menu = struct {
+    /// The main menu is the menu bar at the top of the viewport
+    pub const main = struct {
+        /// create and append to a full screen menu-bar.
+        pub fn begin() bool {
+            return CImGuiBeginMainMenuBar();
+        }
+        extern fn CImGuiBeginMainMenuBar() bool;
+
+        /// only call `end()` if `begin()` returns true!
+        pub fn end() void {
+            CImGuiEndMainMenuBar();
+        }
+        extern fn CImGuiEndMainMenuBar() void;
+    };
     pub const bar = struct {
         /// append to menu-bar of current window.
         /// *requires `ImGuiWindowFlags_MenuBar` flag set on parent window*

@@ -394,6 +394,13 @@ extern "C" {
         ImGui::EndMenuBar();
     }
 
+    bool CImGuiBeginMainMenuBar() {
+        return ImGui::BeginMainMenuBar();
+    }
+    void CImGuiEndMainMenuBar() {
+        ImGui::EndMainMenuBar();
+    }
+
     bool CImGuiBeginMenu(const char* label, bool enabled) {
         return ImGui::BeginMenu(label, enabled);
     }

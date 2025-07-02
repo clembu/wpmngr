@@ -68,8 +68,6 @@ pub const Gui = struct {
         switch (msg) {
             .ready => |init_data| {
                 self.core = init_data;
-                // NOTE: TEMP:
-                self.monswin = try .init(self.allocator, init_data.monitors);
             },
             .err => |e| {
                 self.err = e;
@@ -88,7 +86,34 @@ pub const Gui = struct {
     pub fn update(self: *@This()) !void {
         _ = imgui.dockSpace.overViewport(.{});
 
-        if (self.monswin) |*win| try win.draw(self.allocator, self.displays, self.mbx);
+        menu: {
+            if (!imgui.menu.main.begin()) break :menu;
+            defer imgui.menu.main.end();
+
+            if (imgui.menu.begin("Views", .{})) {
+                defer imgui.menu.end();
+                if (self.core) |core| {
+                    if (imgui.menu.item("Monitors", .{
+                        .selected = self.monswin != null,
+                    })) {
+                        if (self.monswin) |*win| {
+                            win.deinit(self.allocator);
+                            self.monswin = null;
+                        } else {
+                            self.monswin = try .init(self.allocator, core.monitors);
+                        }
+                    }
+
+                }
+            }
+        }
+
+        if (self.monswin) |*win| {
+            if (! try win.draw(self.allocator, self.displays, self.mbx)) {
+                win.deinit(self.allocator);
+                self.monswin = null;
+            }
+        }
 
         if (self.err) |e| {
             if (imgui.popup.beginModal("Error", .{ .open = &self.show_err })) {
