@@ -1,11 +1,10 @@
 const std = @import("std");
+const root = @import("root");
 const imgui = @import("bindings/imgui.zig");
-const vec = @import("vec.zig");
-
-const Image = @import("image.zig");
+const vec = root.vec;
 
 /// The source image of this wallpaper
-image: Image,
+image: root.GuiRT.Texture,
 /// The aspect of this wallpaper
 aspect: vec.V2,
 /// The minimum size of this wallpaper
@@ -24,7 +23,7 @@ roi_op: ?Handle,
 /// If non-null, index of the zoom region being edited
 edit_mode: ?usize,
 
-pub fn init(image: Image, aspect: vec.V2, min_size: vec.V2) @This() {
+pub fn init(image: root.GuiRT.Texture, aspect: vec.V2, min_size: vec.V2) @This() {
     var self: @This() = .{
         .image = image,
         .aspect = aspect,
@@ -42,6 +41,10 @@ pub fn init(image: Image, aspect: vec.V2, min_size: vec.V2) @This() {
     };
     self.reset_roi();
     return self;
+}
+
+pub fn deinit(self: *@This(), rt: *root.GuiRT) void {
+    rt.unload_texture(self.image);
 }
 
 fn reset_roi(self: *@This()) void {
@@ -74,7 +77,7 @@ fn commit_transform(self: *@This()) void {
     }
 }
 
-pub fn update(self: *@This()) !void {
+pub fn update(self: *@This(), rt: *const root.GuiRT) !void {
     {
         const show_win = imgui.window.begin("Image", .{});
         defer imgui.window.end();
@@ -105,7 +108,7 @@ pub fn update(self: *@This()) !void {
             };
 
             imgui.cursor.setScreenPos(screen_pos);
-            imgui.window.getDrawList().addCallback(imgui.backend.set_sampler, self.image.sampler);
+            imgui.window.getDrawList().addCallback(imgui.backend.set_sampler, rt.linear_sampler);
             imgui.image(self.image.txid, .{ .size = img_screen_size });
             imgui.window.getDrawList().addResetCallback();
 
@@ -173,7 +176,7 @@ pub fn update(self: *@This()) !void {
             const screen_quad = vec.quad.fromPosAndSize(imgpos, img_screen_size);
 
             imgui.cursor.setScreenPos(imgpos);
-            imgui.window.getDrawList().addCallback(imgui.backend.set_sampler, self.image.sampler);
+            imgui.window.getDrawList().addCallback(imgui.backend.set_sampler, rt.linear_sampler);
             imgui.window.getDrawList().addImageQuad(
                 self.image.txid,
                 @bitCast(screen_quad),
@@ -241,7 +244,7 @@ pub fn update(self: *@This()) !void {
 
                         imgui.window.getDrawList().addCallback(
                             imgui.backend.set_sampler,
-                            self.image.sampler,
+                            rt.linear_sampler,
                         );
                         imgui.window.getDrawList().addImageQuad(
                             self.image.txid,

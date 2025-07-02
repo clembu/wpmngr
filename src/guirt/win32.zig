@@ -1,0 +1,167 @@
+const std = @import("std");
+const dx = @import("../bindings/directx.zig");
+const w32 = @import("../bindings/win32.zig");
+const imgui = @import("../bindings/imgui.zig");
+const root = @import("root");
+
+dev: *dx.ID3D11Device,
+devctx: *dx.ID3D11DeviceContext,
+mainRTV: *dx.ID3D11RenderTargetView,
+sc: *dx.IDXGISwapChain,
+imctx: imgui.Context,
+linear_sampler: *dx.ID3D11SamplerState,
+
+pub fn init(allocator: std.mem.Allocator, hwnd: w32.HWND) !@This() {
+    const sc, const dev, const devctx = try dx.createDeviceAndSwapChain(.{
+        .BufferCount = 2,
+        .BufferDesc = .{
+            .Width = 0,
+            .Height = 0,
+            .Format = .R8G8B8A8_UNORM,
+            .RefreshRate = .{
+                .Numerator = 30,
+                .Denominator = 1,
+            },
+            .Scaling = .UNSPECIFIED,
+            .ScanlineOrdering = .UNSPECIFIED,
+        },
+        .Flags = .{ .ALLOW_MODE_SWITCH = true },
+        .BufferUsage = .{ .RENDER_TARGET_OUTPUT = true },
+        .OutputWindow = hwnd,
+        .SampleDesc = .{
+            .Count = 1,
+            .Quality = 0,
+        },
+        .Windowed = w32.TRUE,
+        .SwapEffect = .DISCARD,
+    }, .{
+        .driver_type = .HARDWARE,
+    });
+    errdefer _ = sc.Unknown.Release();
+    errdefer _ = devctx.Unknown.Release();
+    errdefer _ = dev.Unknown.Release();
+
+    const rtv = blk: {
+        const backbfr = try sc.SwapChain.GetBuffer(dx.ID3D11Texture2D, 0);
+        defer _ = backbfr.Unknown.Release();
+        break :blk try dev.Device.CreateRenderTargetView(@ptrCast(backbfr), null);
+    };
+    errdefer _ = rtv.Unknown.Release();
+
+    const sampler = try dev.Device.CreateSamplerState(&.{
+        .MinLOD = 0,
+        .MaxLOD = 14,
+        .MipLODBias = 0,
+        .MaxAnisotropy = 16,
+        .ComparisonFunc = .equal,
+        .BorderColor = @splat(0),
+        .AddressW = .clamp,
+        .AddressV = .clamp,
+        .AddressU = .clamp,
+        .Filter = .min_linear_mag_point_mip_linear,
+    });
+    errdefer _ = sampler.Unknown.Release();
+
+    const imctx = try imgui.init(
+        allocator,
+        .{ .hwnd = hwnd, .device = dev, .device_context = devctx },
+    );
+
+    return .{
+        .dev = dev,
+        .devctx = devctx,
+        .sc = sc,
+        .mainRTV = rtv,
+        .imctx = imctx,
+        .linear_sampler = sampler,
+    };
+}
+
+pub fn deinit(self: *const @This()) void {
+    imgui.deinit(self.imctx);
+    _ = self.linear_sampler.Unknown.Release();
+    _ = self.mainRTV.Unknown.Release();
+    _ = self.sc.Unknown.Release();
+    _ = self.devctx.Unknown.Release();
+    _ = self.dev.Unknown.Release();
+}
+
+pub fn getDisplays(self: *const @This(), allocator: std.mem.Allocator) ![]root.app.monitors.Display {
+    var outputs_al: std.ArrayListUnmanaged(root.app.monitors.Display) =
+        try .initCapacity(allocator, 6);
+    errdefer outputs_al.deinit(allocator);
+    const dxgidev = try self.dev.Unknown.QueryInterface(dx.IDXGIDevice);
+    defer _ = dxgidev.Unknown.Release();
+
+    const adapter = try dxgidev.Device.GetAdapter();
+    defer _ = adapter.Unknown.Release();
+    var idx: u32 = 0;
+    var output: ?*dx.IDXGIOutput = null;
+    while (adapter.Adapter.EnumOutputs(idx, &output) != dx.DXGI_ERROR_NOT_FOUND) : ({
+        idx += 1;
+        if (output) |o| _ = o.Unknown.Release();
+    }) {
+        if (output) |o| {
+            const output_desc = try o.Output.GetDesc();
+            const coords = output_desc.DesktopCoordinates;
+            const width = coords.right - coords.left;
+            const height = coords.bottom - coords.top;
+            const out = try outputs_al.addOne(allocator);
+            out.* = .{ .width = @intCast(width), .height = @intCast(height) };
+        }
+    }
+    return try outputs_al.toOwnedSlice(allocator);
+}
+
+pub const Texture = struct {
+    txid: *dx.ID3D11ShaderResourceView,
+    dims: root.vec.V2,
+};
+
+pub fn upload_texture(self: *@This(), imgbfr: root.ImageBuffer) !Texture {
+    var desc = std.mem.zeroes(dx.D3D11_TEXTURE2D_DESC);
+    desc.Width = imgbfr.width;
+    desc.Height = imgbfr.height;
+    desc.MipLevels = 0;
+    desc.ArraySize = 1;
+    desc.Format = .R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = .DEFAULT;
+    desc.BindFlags = .{ .SHADER_RESOURCE = true, .RENDER_TARGET = true };
+    desc.MiscFlags = .{ .GENERATE_MIPS = true };
+
+    const texture = try self.dev.Device.CreateTexture2D(&desc, null);
+    defer _ = texture.Unknown.Release();
+
+    const t = try self.dev.Device.CreateShaderResourceView(@ptrCast(texture), null);
+
+    self.devctx.DeviceContext.UpdateSubresource(
+        @ptrCast(texture),
+        0,
+        null,
+        @ptrCast(imgbfr.buffer.ptr),
+        imgbfr.width * 4,
+        imgbfr.height * imgbfr.width * 4,
+    );
+
+    const fmt_support = try self.dev.Device.CheckFormatSupport(desc.Format);
+
+    if (fmt_support.mip_autogen) {
+        self.devctx.DeviceContext.GenerateMips(t);
+    } else {
+        std.log.warn("We do not support mip gen", .{});
+    }
+
+    return .{
+        .txid = t,
+        .dims = .{
+            @floatFromInt(imgbfr.width),
+            @floatFromInt(imgbfr.height),
+        },
+    };
+}
+
+pub fn unload_texture(self: *@This(), texture: Texture) void {
+    _ = self;
+    _ = texture.txid.Unknown.Release();
+}

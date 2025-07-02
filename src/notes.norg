@@ -1,0 +1,6 @@
+* What I don't like currently:
+  - message handling is exploded across several files
+  - app data depends on "db" types
+  - -> Maybe I want `monitors.db` and `monitors.listwindow` instead of
+    `db.monitors` and `views.monitors`?
+  - binding modules are imported with relative paths

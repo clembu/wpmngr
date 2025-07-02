@@ -1,139 +1,211 @@
 const std = @import("std");
-const imgui = @import("bindings/imgui.zig");
-const vec = @import("vec.zig");
-const spsc = @import("spsc.zig");
-const Cropper = @import("cropper.zig");
-const Image = @import("image.zig");
+const root = @import("root");
 const Db = @import("db/db.zig");
-const MonitorsWindow = @import("views/monitors.zig");
+const imgui = @import("bindings/imgui.zig");
 
-allocator: std.mem.Allocator,
-cropper: ?Cropper,
-db_ready: bool,
-op_err: ?anyerror,
-test_image_filename: [255:0]u8,
-monitors: std.ArrayListUnmanaged(Db.Monitor),
-displays: []DisplaySize,
-monitors_window: MonitorsWindow,
-req: *WorkMsgQueue,
+pub const monitors = @import("monitors.zig");
+pub const Cropper = @import("cropper.zig");
 
-pub fn init(allocator: std.mem.Allocator, req: *WorkMsgQueue, displays: []DisplaySize) !@This() {
-    return .{
-        .allocator = allocator,
-        .cropper = null,
-        .db_ready = false,
-        .op_err = null,
-        .test_image_filename = @splat(0),
-        .monitors = try .initCapacity(allocator, 6),
-        .displays = displays,
-        .monitors_window = .init,
-        .req = req,
-    };
-}
-
-pub fn deinit(self: *@This()) void {
-    self.allocator.free(self.displays);
-    for (self.monitors.items) |*mon| mon.deinit(self.allocator);
-    self.monitors.deinit(self.allocator);
-}
-
-pub fn set_image(self: *@This(), image: Image) void {
-    self.cropper = .init(image, .{ 9, 16 }, .{ 1080, 1920 });
-}
-
-pub fn set_monitors(self: *@This(), monitors: []Db.Monitor) !void {
-    for (self.monitors.items) |*mon| mon.deinit(self.allocator);
-    try self.monitors.replaceRange(self.allocator, 0, self.monitors.items.len, monitors);
-}
-
-pub fn update(self: *@This()) !void {
-    if (self.cropper == null) {
-        _ = imgui.input.text("Test image filename", &self.test_image_filename, .{});
-        if (imgui.button("Load Test Image", .{})) {
-            _ = self.req.send(.{ .load_image_file = std.mem.span(self.test_image_filename[0..].ptr) });
-        }
-    }
-    // if (self.monitors == null) {
-    //     if (imgui.button("Get Monitors", .{})) {
-    //         _ = self.req.send(.get_monitors);
-    //     }
-    // }
-
-    _ = imgui.dockSpace.overViewport(.{});
-    if (self.cropper) |*cr| try cr.update();
-    {
-        const show_win = imgui.window.begin("About SQLite", .{});
-        defer imgui.window.end();
-        if (show_win) {
-            if (self.db_ready) {
-                const version = @import("sqlite").lib_version();
-                try imgui.text.formatted("SQLite Version: {s}", .{version});
-            } else {
-                imgui.loadingBar(.{ .overlay = "Getting ready" });
-            }
-        }
-    }
-
-    {
-        try self.monitors_window.draw(self.allocator, self.monitors.items);
-    }
-
-    if (self.op_err) |err| {
-        const show_win = imgui.window.begin("Error", .{});
-        defer imgui.window.end();
-        if (show_win) {
-            try imgui.text.formatted("{any}", .{err});
-        }
-    }
-}
-
-pub fn handle_msg(self: *@This(), msg: AppMsg) !void {
-    switch (msg) {
-        .db_ready => self.db_ready = true,
-        .new_monitor => |mon| {
-            try self.monitors.append(self.allocator, mon);
-        },
-        .delete_monitor => |id| {
-            if (self.monitors.items.len == 0) return;
-            const idx: ?usize = blk: for (self.monitors.items, 0..) |m, idx| {
-                if (m.id == id) {
-                    std.debug.print("Found index {d} for id {d}\n", .{ idx, id });
-                    break :blk idx;
-                }
-            } else null;
-            if (idx) |i| {
-                var mon = self.monitors.orderedRemove(i);
-                std.debug.print("Deleting index {d}\n", .{i});
-                mon.deinit(self.allocator);
-            }
-        },
-        .monitors => |mons| {
-            try self.set_monitors(mons);
-            self.allocator.free(mons);
-        },
-    }
-}
-
-pub fn set_error(self: *@This(), err: ?anyerror) void {
-    self.op_err = err;
-}
+pub const GuiMsg = union(enum) {
+    ready: Gui.CoreData,
+    err: anyerror,
+    replace_monitors: []Db.monitors.Monitor,
+    load_test_texture: root.ImageBuffer, // TEMP:
+};
 
 pub const WorkMsg = union(enum) {
-    load_image_file: [:0]const u8,
-    monitors: MonitorsWindow.WorkMsg,
-
     quit,
-};
-pub const WorkMsgQueue = spsc.SPSC(WorkMsg, 64);
-
-pub const AppMsg = union(enum) {
-    db_ready,
-    new_monitor: Db.Monitor,
-    delete_monitor: u64,
-    monitors: []Db.Monitor,
+    mons: monitors.WorkMsg,
+    load_test_image, // TEMP:
 };
 
-pub const DisplaySize = struct {
-    width: u32,
-    height: u32,
+pub const Gui = struct {
+    allocator: std.mem.Allocator,
+    mbx: *root.Mailbox,
+    core: ?CoreData = null,
+    err: ?anyerror = null,
+    show_err: bool = false,
+    rt: root.GuiRT,
+    displays: []monitors.Display,
+    monswin: ?monitors.ListWindow = null,
+    cropper: ?Cropper = null,
+
+    pub const CoreData = struct {
+        monitors: []Db.monitors.Monitor,
+
+        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            self.free_monitors(allocator);
+        }
+
+        pub fn free_monitors(self: *@This(), allocator: std.mem.Allocator) void {
+            for (self.monitors) |mon| allocator.free(mon.name);
+            allocator.free(self.monitors);
+        }
+    };
+
+    pub const CreationParameters = struct {
+        allocator: std.mem.Allocator,
+        mbx: *root.Mailbox,
+    };
+
+    pub fn init(rt: root.GuiRT, params: CreationParameters) !@This() {
+        const displays = try rt.getDisplays(params.allocator);
+        return .{
+            .allocator = params.allocator,
+            .mbx = params.mbx,
+            .rt = rt,
+            .displays = displays,
+        };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        if (self.monswin) |*win| win.deinit(self.allocator);
+        if (self.core) |*data| {
+            data.deinit(self.allocator);
+        }
+        self.allocator.free(self.displays);
+        self.rt.deinit();
+    }
+
+    pub fn handle_msg(self: *@This(), msg: GuiMsg) !void {
+        switch (msg) {
+            .ready => |init_data| {
+                self.core = init_data;
+            },
+            .err => |e| {
+                self.err = e;
+                self.show_err = true;
+            },
+            .replace_monitors => |mons| {
+                if (self.core) |*core| {
+                    core.free_monitors(self.allocator);
+                    core.monitors = mons;
+                    if (self.monswin) |*win| try win.reset(self.allocator, core.monitors);
+                }
+            },
+            // TEMP:
+            .load_test_texture => |img| {
+                defer self.allocator.free(img.buffer);
+                if (self.cropper) |_| {} else {
+                    const tx = try self.rt.upload_texture(img);
+                    self.cropper = .init(tx, .{ 16.0, 9.0 }, .{ 1920.0, 1080.0 });
+                }
+            },
+        }
+    }
+
+    pub fn update(self: *@This()) !void {
+        _ = imgui.dockSpace.overViewport(.{});
+
+        menu: {
+            if (!imgui.menu.main.begin()) break :menu;
+            defer imgui.menu.main.end();
+
+            if (imgui.menu.begin("Views", .{})) {
+                defer imgui.menu.end();
+                if (self.core) |core| {
+                    if (imgui.menu.item("Monitors", .{
+                        .selected = self.monswin != null,
+                    })) {
+                        if (self.monswin) |*win| {
+                            win.deinit(self.allocator);
+                            self.monswin = null;
+                        } else {
+                            self.monswin = try .init(self.allocator, core.monitors);
+                        }
+                    }
+
+                    // TEMP:
+                    if (imgui.menu.item("Cropper Test", .{
+                        .selected = self.cropper != null,
+                    })) {
+                        if (self.cropper) |*win| {
+                            win.deinit(&self.rt);
+                            self.cropper = null;
+                        } else {
+                            _ = self.mbx.work.send(.load_test_image);
+                        }
+                    }
+                }
+            }
+        }
+
+        if (self.monswin) |*win| {
+            if (!try win.draw(self.allocator, self.displays, self.mbx)) {
+                win.deinit(self.allocator);
+                self.monswin = null;
+            }
+        }
+
+        // TEMP:
+        if (self.cropper) |*win| try win.update(&self.rt);
+
+        if (self.err) |e| {
+            if (imgui.popup.beginModal("Error", .{ .open = &self.show_err })) {
+                defer imgui.popup.end();
+
+                imgui.text.raw(@errorName(e));
+                if (imgui.button("OK", .{ .size = .{ 240, 0 } })) {
+                    imgui.popup.close();
+                }
+            }
+        }
+    }
+};
+
+pub const Worker = struct {
+    allocator: std.mem.Allocator,
+    rt: root.WorkRT,
+    db: Db,
+    mbx: *root.Mailbox,
+
+    pub fn init(allocator: std.mem.Allocator, mbx: *root.Mailbox, dbpath: [:0]const u8) !@This() {
+        const rt: root.WorkRT = try .init();
+        var db: Db = try .init(dbpath);
+        allocator.free(dbpath);
+        errdefer db.deinit();
+        const mons = try Db.monitors.get_all(&db, allocator);
+        _ = mbx.gui.send(.{ .ready = .{ .monitors = mons } });
+        return .{
+            .db = db,
+            .rt = rt,
+            .mbx = mbx,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *@This()) void {
+        self.rt.deinit();
+        self.db.deinit();
+    }
+
+    pub fn run(self: *@This()) !void {
+        var listen = true;
+        while (listen) {
+            if (self.mbx.work.receive()) |req| {
+                switch (req) {
+                    .quit => {
+                        listen = false;
+                    },
+                    .mons => |mon_msg| {
+                        if (monitors.work.handle_msg(self, mon_msg)) {} else |err| {
+                            _ = self.mbx.gui.send(.{ .err = err });
+                        }
+                    },
+                    .load_test_image => {
+                        if (self.rt.load_image("test_image.jpg", self.allocator)) |img| {
+                            _ = self.mbx.gui.send(.{ .load_test_texture = img });
+                        } else |err| {
+                            _ = self.mbx.gui.send(.{ .err = err });
+                        }
+                    },
+                }
+            }
+            // Two cases:
+            // 1. There are no messages to listen: we yield rather than directly
+            // check again.
+            // 2. We just processed a message, no need to be greedy, we can yield
+            std.Thread.yield() catch {};
+        }
+    }
 };

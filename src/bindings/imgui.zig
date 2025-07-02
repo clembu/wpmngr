@@ -1,7 +1,9 @@
 var tmp_buf: ?std.ArrayList(u8) = null;
 
 const std = @import("std");
-pub const backend = switch (@import("builtin").target.os.tag) {
+const builtin = @import("builtin");
+
+pub const backend = switch (builtin.target.os.tag) {
     .windows => @import("imgui_win32_dx11.zig"),
     else => .{},
 };
@@ -25,26 +27,63 @@ pub const Cond = enum(c_int) {
     appearing = 1 << 3,
 };
 
+// A primary data type
+pub const DataType = enum(c_int) {
+    i8,
+    u8,
+    i16,
+    u16,
+    i32,
+    u32,
+    i64,
+    u64,
+    f32,
+    f64,
+    /// bool (provided for user convenience, not supported by scalar widgets)
+    bool,
+    /// char* (provided for user convenience, not supported by scalar widgets)
+    string,
+
+    pub fn fromType(comptime T: type) @This() {
+        return switch (T) {
+            i8 => .i8,
+            i16 => .i16,
+            i32 => .i32,
+            i64 => .i64,
+            u8 => .u8,
+            u16 => .u16,
+            u32 => .u32,
+            u64 => .u64,
+            f32 => .f32,
+            f64 => .f64,
+            else => |t| @compileError(std.fmt.comptimePrint("Type {any} is not supported by DataType conversion", .{t})),
+        };
+    }
+};
+
 // -------------------------------
 // | Context Creation and access |
 // -------------------------------
 
 pub const Context = *opaque {};
 
-/// - Each context create its own ImFontAtlas by default.
-///   You may instance one yourself and pass it to CreateContext() to share a font atlas between contexts.
-/// - DLL users: heaps and globals are not shared across DLL boundaries!
-///   You will need to call SetCurrentContext() + SetAllocatorFunctions() for each static/DLL boundary you are calling from.
-///   Read "Context and Memory Allocators" section of imgui.cpp for details.
-pub fn init(allocator: std.mem.Allocator) Context {
+/// Creates the Dear ImGui context.
+/// The allocator is used to manage a working buffer for text formatting
+pub fn init(allocator: std.mem.Allocator, args: backend.InitArgs) !Context {
     tmp_buf = .init(allocator);
     // NOTE(smugs): Default font atlas for now
-    return CImGuiCreateContext(null);
+    const ctx = CImGuiCreateContext(null);
+    errdefer CImGuiDestroyContext(ctx);
+
+    try backend.init(args);
+
+    return ctx;
 }
 extern fn CImGuiCreateContext(?*anyopaque) Context;
 
 /// if given null, destroy current context
 pub fn deinit(ctx: ?Context) void {
+    backend.deinit();
     tmp_buf.?.deinit();
     CImGuiDestroyContext(ctx);
 }
@@ -60,12 +99,14 @@ pub fn getStyle() *Style {
 extern fn CImGuiGetStyle() *Style;
 
 pub fn newFrame() void {
+    backend.newFrame();
     CImGuiNewFrame();
 }
 extern fn CImGuiNewFrame() void;
 
 pub fn render() void {
     CImGuiRender();
+    backend.render(getDrawData());
 }
 extern fn CImGuiRender() void;
 
@@ -313,6 +354,36 @@ pub const window = struct {
     };
 };
 
+/// ---------------------
+/// | Windows Scrolling |
+/// ---------------------
+/// - Any change of Scroll will be applied at the beginning of next frame in the first call to Begin().
+/// - You may instead use SetNextWindowScroll() prior to calling Begin() to avoid this delay, as an alternative to using SetScrollX()/SetScrollY().
+pub const scroll = struct {
+    /// adjust scrolling amount to make current cursor position visible.
+    /// `ratio` is a percentile of the scroll track:
+    /// `0.0`: left, `0.5`: center, `1.0`: right.
+    ///
+    /// When using to make a "default/current item" visible,
+    /// consider using `item.setDefaultFocus()` instead.
+    pub fn hereX(opts: struct { ratio: f32 = 0.5 }) void {
+        CImGuiSetScrollHereX(opts.ratio);
+    }
+
+    /// adjust scrolling amount to make current cursor position visible.
+    /// `ratio` is a percentile of the scroll track:
+    /// `0.0`: top, `0.5`: center, `1.0`: bottom.
+    ///
+    /// When using to make a "default/current item" visible,
+    /// consider using `item.setDefaultFocus()` instead.
+    pub fn hereY(opts: struct { ratio: f32 = 0.5 }) void {
+        CImGuiSetScrollHereY(opts.ratio);
+    }
+
+    extern fn CImGuiSetScrollHereX(f32) void;
+    extern fn CImGuiSetScrollHereY(f32) void;
+};
+
 /// -----------------------------
 /// | Layout cursor positioning |
 /// -----------------------------
@@ -382,6 +453,12 @@ pub const layout = struct {
         CImGuiDummy(&size);
     }
     extern fn CImGuiDummy(*const [2]f32) void;
+
+    /// add vertical spacing.
+    pub fn spacing() void {
+        CImGuiSpacing();
+    }
+    extern fn CImGuiSpacing() void;
 
     pub fn indent(opts: struct { width: f32 = 0 }) void {
         CImGuiIndent(opts.width);
@@ -568,6 +645,15 @@ pub const ButtonFlags = packed struct(c_int) {
     };
 };
 
+/// draw a small circle + keep the cursor on the same line.
+///
+/// advance cursor x position by GetTreeNodeToLabelSpacing(),
+/// same distance that TreeNode() uses
+pub fn bullet() void {
+    CImGuiBullet();
+}
+extern fn CImGuiBullet() void;
+
 // -------------------
 // | Widgets: Images |
 // -------------------
@@ -636,27 +722,43 @@ pub const combo = struct {
 // | Widgets: Drag Sliders |
 // -------------------------
 
-pub fn dragFloat(label: [:0]const u8, value: *f32, opts: struct {
-    speed: f32 = 1,
-    min: f32 = 0,
-    max: f32 = 0,
-    cfmt: [:0]const u8 = "%.3f",
-    flags: SliderFlags = .{},
-}) bool {
-    return CImGuiDragFloat(label, value, opts.speed, opts.min, opts.max, opts.cfmt, opts.flags);
+fn scalarMin(comptime T: type) T {
+    const tinf = @typeInfo(T);
+    return switch (tinf) {
+        .int => std.math.minInt(T),
+        .float => std.math.floatMin(T),
+        else => @compileError("Scalars are ints and floats only"),
+    };
 }
-extern fn CImGuiDragFloat([*:0]const u8, *f32, f32, f32, f32, [*:0]const u8, SliderFlags) bool;
 
-pub fn dragInt(label: [:0]const u8, value: *u32, opts: struct {
+fn scalarMax(comptime T: type) T {
+    const tinf = @typeInfo(T);
+    return switch (tinf) {
+        .int => std.math.maxInt(T),
+        .float => std.math.floatMax(T),
+        else => @compileError("Scalars are ints and floats only"),
+    };
+}
+
+pub fn dragValue(comptime T: type, label: [:0]const u8, value: *T, opts: struct {
     speed: f32 = 1,
-    min: u32 = 0,
-    max: u32 = 0,
-    cfmt: [:0]const u8 = "%d",
+    min: T = scalarMin(T),
+    max: T = scalarMax(T),
+    cfmt: ?[:0]const u8 = null,
     flags: SliderFlags = .{},
 }) bool {
-    return CImGuiDragInt(label, value, opts.speed, opts.min, opts.max, opts.cfmt, opts.flags);
+    return CImGuiDragScalar(
+        label,
+        DataType.fromType(T),
+        @ptrCast(value),
+        opts.speed,
+        @ptrCast(&opts.min),
+        @ptrCast(&opts.max),
+        if (opts.cfmt) |cfmt| cfmt.ptr else null,
+        opts.flags,
+    );
 }
-extern fn CImGuiDragInt([*:0]const u8, *u32, f32, u32, u32, [*:0]const u8, SliderFlags) bool;
+extern fn CImGuiDragScalar([*:0]const u8, DataType, *anyopaque, f32, ?*const anyopaque, ?*const anyopaque, ?[*:0]const u8, SliderFlags) bool;
 
 pub const SliderFlags = packed struct(c_int) {
     _unused_1_5: u5 = 0,
@@ -817,6 +919,20 @@ pub const selectable = struct {
 /// | Widgets: Menus |
 /// ------------------
 pub const menu = struct {
+    /// The main menu is the menu bar at the top of the viewport
+    pub const main = struct {
+        /// create and append to a full screen menu-bar.
+        pub fn begin() bool {
+            return CImGuiBeginMainMenuBar();
+        }
+        extern fn CImGuiBeginMainMenuBar() bool;
+
+        /// only call `end()` if `begin()` returns true!
+        pub fn end() void {
+            CImGuiEndMainMenuBar();
+        }
+        extern fn CImGuiEndMainMenuBar() void;
+    };
     pub const bar = struct {
         /// append to menu-bar of current window.
         /// *requires `ImGuiWindowFlags_MenuBar` flag set on parent window*
@@ -832,12 +948,27 @@ pub const menu = struct {
         extern fn CImGuiEndMenuBar() void;
     };
 
+    pub fn begin(label: [:0]const u8, opts: struct { enabled: bool = true }) bool {
+        return CImGuiBeginMenu(label, opts.enabled);
+    }
+    extern fn CImGuiBeginMenu([*:0]const u8, bool) bool;
+
+    pub fn end() void {
+        CImGuiEndMenu();
+    }
+    extern fn CImGuiEndMenu() void;
+
     pub fn item(label: [:0]const u8, opts: struct {
         shortcut: ?[:0]const u8 = null,
         selected: bool = false,
         enabled: bool = true,
     }) bool {
-        return CImGuiMenuItem(label, opts.shortcut, opts.selected, opts.enabled);
+        return CImGuiMenuItem(
+            label,
+            if (opts.shortcut) |sc| sc else null,
+            opts.selected,
+            opts.enabled,
+        );
     }
     extern fn CImGuiMenuItem([*:0]const u8, ?[*:0]const u8, bool, bool) bool;
 
@@ -848,6 +979,31 @@ pub const menu = struct {
         return CImGuiMenuItemToggle(label, opts.shortcut, selected, opts.enabled);
     }
     extern fn CImGuiMenuItemToggle([*:0]const u8, ?[*:0]const u8, *bool, bool) bool;
+};
+
+/// ------------
+/// | Tooltips |
+/// ------------
+// - Tooltips are windows following the mouse. They do not take focus away.
+// - A tooltip window can contain items of any types.
+pub const tooltip = struct {
+    /// begin/append a tooltip window.
+    pub fn begin() bool {
+        return CImGuiBeginTooltip();
+    }
+    extern fn CImGuiBeginTooltip() bool;
+
+    // begin/append a tooltip window if preceding item was hovered.
+    pub fn beginForItem() bool {
+        return CImGuiBeginItemTooltip();
+    }
+    extern fn CImGuiBeginItemTooltip() bool;
+
+    // only call `end()` if the `begin()` or `beginForItem()` returned true;
+    pub fn end() void {
+        return CImGuiEndTooltip();
+    }
+    extern fn CImGuiEndTooltip() void;
 };
 
 /// ------------------
@@ -885,6 +1041,21 @@ pub const popup = struct {
         return CImGuiBeginPopupModal(id, opts.open, opts.flags);
     }
     extern fn CImGuiBeginPopupModal([*:0]const u8, ?*bool, window.Flags) bool;
+
+    /// open+begin popup when clicked on last item.
+    /// Use `opts.item = null` to associate the popup to previous item.
+    /// If you want to use that on a non-interactive item such as text,
+    /// you need to pass in an explicit ID here.
+    ///
+    /// Returns true if the popup is open.
+    /// Call `end()` only if it returns true
+    pub fn beginContext(opts: struct {
+        item: ?[:0]const u8 = null,
+        flags: Flags = .{},
+    }) bool {
+        return CImGuiBeginPopupContextItem(opts.items, opts.flags);
+    }
+    extern fn CImGuiBeginPopupContextItem(?[*:0]const u8, Flags) bool;
 
     /// only call `end()` if `begin()` or `beginModal()` returns true
     pub fn end() void {
@@ -1018,6 +1189,21 @@ pub const item = struct {
         return sz;
     }
     extern fn CImGuiGetItemRectSize(*[2]f32) void;
+
+    pub fn pushWidth(size: f32) void {
+        CImGuiPushItemWidth(size);
+    }
+    extern fn CImGuiPushItemWidth(f32) void;
+
+    pub fn popWidth() void {
+        CImGuiPopItemWidth();
+    }
+    extern fn CImGuiPopItemWidth() void;
+
+    pub fn setDefaultFocus() void {
+        CImGuiSetItemDefaultFocus();
+    }
+    extern fn CImGuiSetItemDefaultFocus() void;
 
     pub const HoveredFlags = packed struct(u32) {
         /// IsWindowHovered() only: Return true if any children of the window is hovered
@@ -1452,13 +1638,18 @@ pub const draw = struct {
 ///   - Windows are generally trying to stay within the Work Area of their host viewport.
 pub const Viewport = opaque {};
 
+pub const Vec2 = extern struct {
+    x: f32,
+    y: f32,
+};
+
 pub const Style = extern struct {
     /// Global alpha applies to everything in Dear ImGui.
     alpha: f32,
     /// Additional alpha multiplier applied by BeginDisabled(). Multiply over current value of Alpha.
     disabledAlpha: f32,
     /// Padding within a window.
-    windowPadding: [2]f32,
+    windowPadding: Vec2,
     /// Radius of window corners rounding. Set to 0.0f to have rectangular windows. Large values tend to lead to variety of artifacts and are not recommended.
     windowRounding: f32,
     /// Thickness of border around windows. Generally set to 0.0f or 1.0f. (Other values are not well tested and more CPU/GPU costly).
@@ -1466,9 +1657,9 @@ pub const Style = extern struct {
     /// Hit-testing extent outside/inside resizing border. Also extend determination of hovered window. Generally meaningfully larger than WindowBorderSize to make it easy to reach borders.
     windowBorderHoverPadding: f32,
     /// Minimum window size. This is a global setting. If you want to constrain individual windows, use SetNextWindowSizeConstraints().
-    windowMinSize: [2]f32,
+    windowMinSize: Vec2,
     /// Alignment for title bar text. Defaults to (0.0f,0.5f) for left-aligned,vertically centered.
-    windowTitleAlign: [2]f32,
+    windowTitleAlign: Vec2,
     /// Side of the collapsing/docking button in the title bar (None/Left/Right). Defaults to `Dir.left`.
     windowMenuButtonPosition: Dir,
     /// Radius of child window corners rounding. Set to 0.0f to have rectangular windows.
@@ -1480,19 +1671,19 @@ pub const Style = extern struct {
     /// Thickness of border around popup/tooltip windows. Generally set to 0.0f or 1.0f. (Other values are not well tested and more CPU/GPU costly).
     popupBorderSize: f32,
     /// Padding within a framed rectangle (used by most widgets).
-    framePadding: [2]f32,
+    framePadding: Vec2,
     /// Radius of frame corners rounding. Set to 0.0f to have rectangular frame (used by most widgets).
     frameRounding: f32,
     /// Thickness of border around frames. Generally set to 0.0f or 1.0f. (Other values are not well tested and more CPU/GPU costly).
     frameBorderSize: f32,
     /// Horizontal and vertical spacing between widgets/lines.
-    itemSpacing: [2]f32,
+    itemSpacing: Vec2,
     /// Horizontal and vertical spacing between within elements of a composed widget (e.g. a slider and its label).
-    itemInnerSpacing: [2]f32,
+    itemInnerSpacing: Vec2,
     /// Padding within a table cell. Cellpadding.x is locked for entire table. CellPadding.y may be altered between different rows.
-    cellPadding: [2]f32,
+    cellPadding: Vec2,
     /// Expand reactive bounding box for touch-based system where touch position is not accurate enough. Unfortunately we don't sort widgets so priority on overlap will always be given to the first widget. So don't grow this too much!
-    touchExtraPadding: [2]f32,
+    touchExtraPadding: Vec2,
     /// Horizontal indentation when e.g. entering a tree node. Generally == (FontSize + FramePadding.x*2).
     indentSpacing: f32,
     /// Minimum horizontal spacing between two columns. Preferably > (FramePadding.x + 1).
@@ -1524,23 +1715,23 @@ pub const Style = extern struct {
     /// Angle of angled headers (supported values range from -50.0f degrees to +50.0f degrees).
     tableAngledHeadersAngle: f32,
     /// Alignment of angled headers within the cell
-    tableAngledHeadersTextAlign: [2]f32,
+    tableAngledHeadersTextAlign: Vec2,
     /// Side of the color button in the ColorEdit4 widget (left/right). Defaults to `Dir.right`.
     colorButtonPosition: Dir,
     /// Alignment of button text when button is larger than text. Defaults to (0.5f, 0.5f) (centered).
-    buttonTextAlign: [2]f32,
+    buttonTextAlign: Vec2,
     /// Alignment of selectable text. Defaults to (0.0f, 0.0f) (top-left aligned). It's generally important to keep this left-aligned if you want to lay multiple items on a same line.
-    selectableTextAlign: [2]f32,
+    selectableTextAlign: Vec2,
     /// Thickness of border in SeparatorText()
     separatorTextBorderSize: f32,
     /// Alignment of text within the separator. Defaults to (0.0f, 0.5f) (left aligned, center).
-    separatorTextAlign: [2]f32,
+    separatorTextAlign: Vec2,
     /// Horizontal offset of text from each edge of the separator + spacing on other axis. Generally small values. .y is recommended to be == FramePadding.y.
-    separatorTextPadding: [2]f32,
+    separatorTextPadding: Vec2,
     /// Apply to regular windows: amount which we enforce to keep visible when moving near edges of your screen.
-    displayWindowPadding: [2]f32,
+    displayWindowPadding: Vec2,
     /// Apply to every windows, menus, popups, tooltips: amount where we avoid displaying contents. Adjust if you cannot see the edges of your screen (e.g. on a TV where scaling has not been configured).
-    displaySafeAreaPadding: [2]f32,
+    displaySafeAreaPadding: Vec2,
     /// Thickness of resizing border between docked windows
     dockingSeparatorSize: f32,
     /// Scale software rendered mouse cursor (when io.MouseDrawCursor is enabled). We apply per-monitor DPI scaling over this scale. May be removed later.
@@ -1662,6 +1853,16 @@ pub const Style = extern struct {
         /// Darken/colorize entire screen behind a modal window, when one is active
         modalWindowDimBg,
     };
+};
+
+pub const color = struct {
+    pub fn floats_to_u32(in: [4]f32) u32 {
+        const r: u32 = @intFromFloat(@round(in[0] * 255.0));
+        const g: u32 = @intFromFloat(@round(in[1] * 255.0));
+        const b: u32 = @intFromFloat(@round(in[2] * 255.0));
+        const a: u32 = @intFromFloat(@round(in[3] * 255.0));
+        return (a << 24 | r << 16 | g << 8 | b);
+    }
 };
 
 /// ---------------
