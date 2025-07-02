@@ -46,10 +46,16 @@ zig build wpmngr
 > Regardless of the target you supply, the build will try to produce a Windows executable, and likely expect to build *on* a Windows system.
 
 ### Running
-Once built, you can call the program and give it a filepath for its sqlite DB, and optionally an image to show a rectangle selection view for.
+Once built, you can call the program and give it a filepath for its sqlite DB.
 ```
-zig-out/bin/wpmngr path/to/test/db [path/to/test/image]
+zig-out/bin/wpmngr path/to/test/db
 ```
+
+The `Cropper Test` view expects a `test_image.jpg` file to be located in the
+directory the binary was executed from. Absence of that file has not been
+tested, but it should just display an error message.
+(I didn't see a point of making a test view intended to be re-written and
+refactored future-proof.)
 
 ## License
 The code bundles a copy of [Dear Imgui](https://github.com/ocornut/imgui), which includes it's own license.
