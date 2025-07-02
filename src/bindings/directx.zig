@@ -945,7 +945,7 @@ pub const ID3D11Device = extern struct {
                 if (!w32.SUCCEEDED(hr)) {
                     return error.CreateSampler;
                 }
-                return hr.?;
+                return sampler.?;
             }
 
             pub fn CheckFormatSupport(
@@ -955,7 +955,7 @@ pub const ID3D11Device = extern struct {
                 const self: *T = @alignCast(@fieldParentPtr("Device", m));
                 const vt: *const ID3D11Device.VTable = @ptrCast(self.__v);
                 const ctx: *ID3D11Device = @ptrCast(self);
-                var res: *D3D11_FORMAT_SUPPORT = undefined;
+                var res: D3D11_FORMAT_SUPPORT = undefined;
                 const hr = vt.CheckFormatSupport(ctx, format, &res);
                 if (!w32.SUCCEEDED(hr)) {
                     return error.CheckFormatSupport;

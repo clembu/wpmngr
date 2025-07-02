@@ -52,7 +52,7 @@ pub const IWICImagingFactory = extern struct {
                 const self: *T = @alignCast(@fieldParentPtr("ImagingFactory", m));
                 const vt: *const IWICImagingFactory.VTable = @ptrCast(self.__v);
                 const ctx: *IWICImagingFactory = @ptrCast(self);
-                const decoder: ?*IWICBitmapDecoder = null;
+                var decoder: ?*IWICBitmapDecoder = null;
                 const hr = vt.CreateDecoderFromFilename(
                     ctx,
                     filename,

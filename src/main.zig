@@ -44,6 +44,7 @@ fn run_worker(allocator: std.mem.Allocator, com: *Mailbox, dbpath: [:0]const u8)
 }
 
 pub const app = @import("app.zig");
+pub const vec = @import("vec.zig");
 
 const rt = switch (builtin.os.tag) {
     .windows => struct {
@@ -82,3 +83,6 @@ pub const GuiRunner = switch (builtin.os.tag) {
 };
 
 pub const Gui = app.Gui;
+
+pub const ImageBuffer = struct { width: u32, height: u32, buffer: []const u8 };
+

@@ -1,6 +1,7 @@
+const std = @import("std");
+const root = @import("root");
 const w32 = @import("../bindings/win32.zig");
 const wic = @import("../bindings/wincodec.zig");
-const std = @import("std");
 
 wicfac: *wic.IWICImagingFactory,
 
@@ -13,12 +14,15 @@ pub fn deinit(self: *@This()) void {
     _ = self.wicfac.Unknown.Release();
 }
 
+/// The following will be allocated and given to the caller:
+/// - The image buffer data
 pub fn load_image(
     self: *@This(),
     path: [:0]const u8,
-) !struct { width: u32, height: u32, buffer: []const u8 } {
-    const pathw = try std.unicode.wtf8ToWtf16LeAllocZ(self.allocator, path);
-    defer self.allocator.free(pathw);
+    allocator: std.mem.Allocator,
+) !root.ImageBuffer {
+    const pathw = try std.unicode.wtf8ToWtf16LeAllocZ(allocator, path);
+    defer allocator.free(pathw);
 
     const decoder = try self.wicfac.ImagingFactory.CreateDecoderFromFilename(
         pathw,
@@ -44,10 +48,10 @@ pub fn load_image(
 
     const size = try conv.BitmapSource.GetSize();
 
-    const imgbfr = try self.allocator.alloc(u8, size.width * size.height * 4);
-    errdefer self.allocator.free(imgbfr);
+    const imgbfr = try allocator.alloc(u8, size.width * size.height * 4);
+    errdefer allocator.free(imgbfr);
 
-    try conv.BitmapSource.CopyPixels(null, size.width * 4, size.imgbfr);
+    try conv.BitmapSource.CopyPixels(null, size.width * 4, imgbfr);
 
     return .{ .width = size.width, .height = size.height, .buffer = imgbfr };
 }

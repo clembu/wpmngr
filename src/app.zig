@@ -4,19 +4,21 @@ const Db = @import("db/db.zig");
 const imgui = @import("bindings/imgui.zig");
 
 pub const monitors = @import("monitors.zig");
+pub const Cropper = @import("cropper.zig");
 
 pub const GuiMsg = union(enum) {
     ready: Gui.CoreData,
     err: anyerror,
     replace_monitors: []Db.monitors.Monitor,
+    load_test_texture: root.ImageBuffer, // TEMP:
 };
 
 pub const WorkMsg = union(enum) {
     quit,
     mons: monitors.WorkMsg,
+    load_test_image, // TEMP:
 };
 
-// TODO: re-integrate cropper test view
 pub const Gui = struct {
     allocator: std.mem.Allocator,
     mbx: *root.Mailbox,
@@ -26,6 +28,7 @@ pub const Gui = struct {
     rt: root.GuiRT,
     displays: []monitors.Display,
     monswin: ?monitors.ListWindow = null,
+    cropper: ?Cropper = null,
 
     pub const CoreData = struct {
         monitors: []Db.monitors.Monitor,
@@ -80,6 +83,14 @@ pub const Gui = struct {
                     if (self.monswin) |*win| try win.reset(self.allocator, core.monitors);
                 }
             },
+            // TEMP:
+            .load_test_texture => |img| {
+                defer self.allocator.free(img.buffer);
+                if (self.cropper) |_| {} else {
+                    const tx = try self.rt.upload_texture(img);
+                    self.cropper = .init(tx, .{ 16.0, 9.0 }, .{ 1920.0, 1080.0 });
+                }
+            },
         }
     }
 
@@ -104,16 +115,30 @@ pub const Gui = struct {
                         }
                     }
 
+                    // TEMP:
+                    if (imgui.menu.item("Cropper Test", .{
+                        .selected = self.cropper != null,
+                    })) {
+                        if (self.cropper) |*win| {
+                            win.deinit(&self.rt);
+                            self.cropper = null;
+                        } else {
+                            _ = self.mbx.work.send(.load_test_image);
+                        }
+                    }
                 }
             }
         }
 
         if (self.monswin) |*win| {
-            if (! try win.draw(self.allocator, self.displays, self.mbx)) {
+            if (!try win.draw(self.allocator, self.displays, self.mbx)) {
                 win.deinit(self.allocator);
                 self.monswin = null;
             }
         }
+
+        // TEMP:
+        if (self.cropper) |*win| try win.update(&self.rt);
 
         if (self.err) |e| {
             if (imgui.popup.beginModal("Error", .{ .open = &self.show_err })) {
@@ -164,6 +189,13 @@ pub const Worker = struct {
                     },
                     .mons => |mon_msg| {
                         if (monitors.work.handle_msg(self, mon_msg)) {} else |err| {
+                            _ = self.mbx.gui.send(.{ .err = err });
+                        }
+                    },
+                    .load_test_image => {
+                        if (self.rt.load_image("test_image.jpg", self.allocator)) |img| {
+                            _ = self.mbx.gui.send(.{ .load_test_texture = img });
+                        } else |err| {
                             _ = self.mbx.gui.send(.{ .err = err });
                         }
                     },

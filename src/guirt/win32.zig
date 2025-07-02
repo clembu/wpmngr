@@ -9,6 +9,7 @@ devctx: *dx.ID3D11DeviceContext,
 mainRTV: *dx.ID3D11RenderTargetView,
 sc: *dx.IDXGISwapChain,
 imctx: imgui.Context,
+linear_sampler: *dx.ID3D11SamplerState,
 
 pub fn init(allocator: std.mem.Allocator, hwnd: w32.HWND) !@This() {
     const sc, const dev, const devctx = try dx.createDeviceAndSwapChain(.{
@@ -47,6 +48,20 @@ pub fn init(allocator: std.mem.Allocator, hwnd: w32.HWND) !@This() {
     };
     errdefer _ = rtv.Unknown.Release();
 
+    const sampler = try dev.Device.CreateSamplerState(&.{
+        .MinLOD = 0,
+        .MaxLOD = 14,
+        .MipLODBias = 0,
+        .MaxAnisotropy = 16,
+        .ComparisonFunc = .equal,
+        .BorderColor = @splat(0),
+        .AddressW = .clamp,
+        .AddressV = .clamp,
+        .AddressU = .clamp,
+        .Filter = .min_linear_mag_point_mip_linear,
+    });
+    errdefer _ = sampler.Unknown.Release();
+
     const imctx = try imgui.init(
         allocator,
         .{ .hwnd = hwnd, .device = dev, .device_context = devctx },
@@ -58,11 +73,13 @@ pub fn init(allocator: std.mem.Allocator, hwnd: w32.HWND) !@This() {
         .sc = sc,
         .mainRTV = rtv,
         .imctx = imctx,
+        .linear_sampler = sampler,
     };
 }
 
 pub fn deinit(self: *const @This()) void {
     imgui.deinit(self.imctx);
+    _ = self.linear_sampler.Unknown.Release();
     _ = self.mainRTV.Unknown.Release();
     _ = self.sc.Unknown.Release();
     _ = self.devctx.Unknown.Release();
@@ -96,64 +113,55 @@ pub fn getDisplays(self: *const @This(), allocator: std.mem.Allocator) ![]root.a
     return try outputs_al.toOwnedSlice(allocator);
 }
 
+pub const Texture = struct {
+    txid: *dx.ID3D11ShaderResourceView,
+    dims: root.vec.V2,
+};
 
-// Frees `buffer` with the runtime's allocator.
-// fn upload_texture(self: *@This(), width: u32, height: u32, buffer: []const u8) !Image {
-//     var desc = std.mem.zeroes(dx.D3D11_TEXTURE2D_DESC);
-//     desc.Width = width;
-//     desc.Height = height;
-//     desc.MipLevels = 0;
-//     desc.ArraySize = 1;
-//     desc.Format = .R8G8B8A8_UNORM;
-//     desc.SampleDesc.Count = 1;
-//     desc.Usage = .DEFAULT;
-//     desc.BindFlags = .{ .SHADER_RESOURCE = true, .RENDER_TARGET = true };
-//     desc.MiscFlags = .{ .GENERATE_MIPS = true };
-//
-//     const texture = try self.dev.Device.CreateTexture2D(&desc, null);
-//     defer _ = texture.Unknown.Release();
-//
-//     const t = try self.dev.Device.CreateShaderResourceView(@ptrCast(texture), &desc);
-//
-//     self.devctx.DeviceContext.UpdateSubresource(
-//         @ptrCast(texture),
-//         0,
-//         null,
-//         @ptrCast(buffer.ptr),
-//         width * 4,
-//         height * width * 4,
-//     );
-//
-//     self.allocator.free(buffer);
-//
-//     const fmt_support = try self.dev.Device.CheckFormatSupport(desc.Format);
-//
-//     if (fmt_support.mip_autogen) {
-//         self.devctx.DeviceContext.GenerateMips(t);
-//     } else {
-//         std.log.warn("We do not support mip gen", .{});
-//     }
-//
-//     const sampler = try self.dev.Device.CreateSamplerState(&.{
-//         .MinLOD = 0,
-//         .MaxLOD = 14,
-//         .MipLODBias = 0,
-//         .MaxAnisotropy = 16,
-//         .ComparisonFunc = .equal,
-//         .BorderColor = @splat(0),
-//         .AddressW = .clamp,
-//         .AddressV = .clamp,
-//         .AddressU = .clamp,
-//         .Filter = .min_linear_mag_point_mip_linear,
-//     });
-//
-//     return .{
-//         .txid = t,
-//         .dims = .{
-//             @floatFromInt(width),
-//             @floatFromInt(height),
-//         },
-//         .sampler = sampler,
-//     };
-// }
-// const Image = @import("image.zig");
+pub fn upload_texture(self: *@This(), imgbfr: root.ImageBuffer) !Texture {
+    var desc = std.mem.zeroes(dx.D3D11_TEXTURE2D_DESC);
+    desc.Width = imgbfr.width;
+    desc.Height = imgbfr.height;
+    desc.MipLevels = 0;
+    desc.ArraySize = 1;
+    desc.Format = .R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = .DEFAULT;
+    desc.BindFlags = .{ .SHADER_RESOURCE = true, .RENDER_TARGET = true };
+    desc.MiscFlags = .{ .GENERATE_MIPS = true };
+
+    const texture = try self.dev.Device.CreateTexture2D(&desc, null);
+    defer _ = texture.Unknown.Release();
+
+    const t = try self.dev.Device.CreateShaderResourceView(@ptrCast(texture), null);
+
+    self.devctx.DeviceContext.UpdateSubresource(
+        @ptrCast(texture),
+        0,
+        null,
+        @ptrCast(imgbfr.buffer.ptr),
+        imgbfr.width * 4,
+        imgbfr.height * imgbfr.width * 4,
+    );
+
+    const fmt_support = try self.dev.Device.CheckFormatSupport(desc.Format);
+
+    if (fmt_support.mip_autogen) {
+        self.devctx.DeviceContext.GenerateMips(t);
+    } else {
+        std.log.warn("We do not support mip gen", .{});
+    }
+
+    return .{
+        .txid = t,
+        .dims = .{
+            @floatFromInt(imgbfr.width),
+            @floatFromInt(imgbfr.height),
+        },
+    };
+}
+
+pub fn unload_texture(self: *@This(), texture: Texture) void {
+    _ = self;
+    _ = texture.txid.Unknown.Release();
+}
